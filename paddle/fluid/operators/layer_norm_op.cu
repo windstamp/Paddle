@@ -113,8 +113,8 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
                                  int feature_size) {
   using BlockReduce = cub::BlockReduce<PairForLayerNorm<double>, BlockDim>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
-  __shared__ double mean_share;
-  __shared__ double var_share;
+  __shared__ U mean_share;
+  __shared__ U var_share;
 
   int beg_idx = blockIdx.x * feature_size + threadIdx.x;
   int end_idx = (blockIdx.x + 1) * feature_size;
