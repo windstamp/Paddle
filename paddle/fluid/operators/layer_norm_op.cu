@@ -113,6 +113,8 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
                                  int feature_size) {
   using BlockReduce = cub::BlockReduce<PairForLayerNorm<double>, BlockDim>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
+  __shared__ double mean_share;
+  __shared__ double var_share;
 
   int beg_idx = blockIdx.x * feature_size + threadIdx.x;
   int end_idx = (blockIdx.x + 1) * feature_size;
@@ -130,12 +132,16 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
                           PairForLayerNormAddFunctor<double>());
   if (threadIdx.x == 0) {
     auto tmp = pair.first_ / feature_size;
-    mean[blockIdx.x] = static_cast<U>(tmp);
-    var[blockIdx.x] = static_cast<U>(pair.second_ / feature_size - tmp * tmp);
+    mean[blockIdx.x] = mean_share = static_cast<U>(tmp);
+    var[blockIdx.x] = var_share =
+        static_cast<U>(pair.second_ / feature_size - tmp * tmp);
   }
   __syncthreads();
-  mean_val = mean[blockIdx.x];
-  var_val = static_cast<U>(real_sqrt(var[blockIdx.x] + epsilon));
+  // mean_val = mean[blockIdx.x];
+  // var_val = static_cast < U > (real_sqrt(var[blockIdx.x] + epsilon));
+
+  mean_val = mean_share;
+  var_val = static_cast<U>(real_sqrt(var_share + epsilon));
 
   // Step 2: Calculate y
   if (scale != nullptr) {
