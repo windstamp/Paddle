@@ -107,6 +107,21 @@ struct PairForLayerNormAddFunctor {
   }
 };
 
+template <typename T>
+__inline__ __device__ T rsqrt(const T val) {
+  return ::rsqrt(val);
+}
+
+template <>
+__inline__ __device__ float rsqrt(const float val) {
+  return rsqrtf(val);
+}
+
+template <>
+__inline__ __device__ half rsqrt(const half val) {
+  return hrsqrt(val);
+}
+
 template <typename T, typename U, int BlockDim>
 __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
                                  T *y, U *mean, U *var, float epsilon,
@@ -135,7 +150,9 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
   }
   __syncthreads();
   mean_val = mean[blockIdx.x];
-  var_val = static_cast<U>(real_sqrt(var[blockIdx.x] + epsilon));
+  // var_val = static_cast < U > (real_sqrt(var[blockIdx.x] + epsilon));
+
+  U invvar = rsqrt<U>(var[blockIdx.x] + static_cast<U>(epsilon));
 
   // Step 2: Calculate y
   if (scale != nullptr) {
@@ -143,26 +160,26 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
       for (int i = beg_idx, j = threadIdx.x; i < end_idx;
            i += BlockDim, j += BlockDim) {
         y[i] = static_cast<T>(
-            scale[j] * (static_cast<U>(x[i]) - mean_val) / var_val + bias[j]);
+            scale[j] * (static_cast<U>(x[i]) - mean_val) * invvar + bias[j]);
       }
     } else {
       for (int i = beg_idx, j = threadIdx.x; i < end_idx;
            i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>(scale[j] * (static_cast<U>(x[i]) - mean_val) /
-                              var_val);
+        y[i] = static_cast<T>(scale[j] * (static_cast<U>(x[i]) - mean_val) *
+                              invvar);
       }
     }
   } else {  // scale == nullptr
     if (bias != nullptr) {
       for (int i = beg_idx, j = threadIdx.x; i < end_idx;
            i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) / var_val +
+        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar +
                               bias[j]);
       }
     } else {
       for (int i = beg_idx, j = threadIdx.x; i < end_idx;
            i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) / var_val);
+        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar);
       }
     }
   }
