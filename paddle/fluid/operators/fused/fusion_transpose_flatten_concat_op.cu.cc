@@ -12,6 +12,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
+// HIP not support cudnnTransformTensor
+#if defined(__NVCC__) || defined(__HIPCC__)
+
 #include "paddle/fluid/operators/fused/fusion_transpose_flatten_concat_op.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/platform/cudnn_helper.h"
@@ -48,13 +51,13 @@ class TransposeFlattenConcatFusionKernel : public framework::OpKernel<T> {
     std::vector<int> stride_y(max_dim, 0);
     std::vector<int> dims_y(max_dim, 0);
 
-    cudnnTensorDescriptor_t in_desc;
-    cudnnTensorDescriptor_t out_desc;
+    gpuDnnTensorDesc_t in_desc;
+    gpuDnnTensorDesc_t out_desc;
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnCreateTensorDescriptor(&in_desc));
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnCreateTensorDescriptor(&out_desc));
-    cudnnDataType_t cudnn_dtype = CudnnDataType<T>::type;
+    gpuDnnDataType_t cudnn_dtype = CudnnDataType<T>::type;
 
     auto& dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
     auto handle = dev_ctx.cudnn_handle();
@@ -122,3 +125,5 @@ namespace ops = paddle::operators;
 REGISTER_OP_CUDA_KERNEL(fusion_transpose_flatten_concat,
                         ops::TransposeFlattenConcatFusionKernel<float>,
                         ops::TransposeFlattenConcatFusionKernel<double>);
+
+#endif // __NVCC__

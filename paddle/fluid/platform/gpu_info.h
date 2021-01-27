@@ -15,8 +15,30 @@ limitations under the License. */
 #pragma once
 
 #ifdef PADDLE_WITH_CUDA
-
 #include <cuda_runtime.h>
+#define gpuSuccess cudaSuccess
+#define gpuErrorMemoryAllocation cudaErrorMemoryAllocation
+#define gpuErrorCudartUnloading cudaErrorCudartUnloading
+typedef cudaError_t gpuError_t;
+typedef cudaEvent_t gpuEvent_t;
+typedef cudaStream_t gpuStream_t;
+typedef cudaDeviceProp gpuDeviceProp_t;
+typedef enum cudaMemcpyKind gpuMemcpyKind;
+#endif
+
+#ifdef PADDLE_WITH_HIP
+#include <hip/hip_runtime.h>
+#define gpuSuccess hipSuccess
+#define gpuErrorMemoryAllocation hipErrorOutOfMemory
+#define gpuErrorCudartUnloading hipErrorDeinitialized
+typedef hipError_t gpuError_t;
+typedef hipEvent_t gpuEvent_t;
+typedef hipStream_t gpuStream_t;
+typedef hipDeviceProp_t gpuDeviceProp_t;
+typedef enum hipMemcpyKind gpuMemcpyKind;
+#endif
+
+#if (defined PADDLE_WITH_CUDA || defined PADDLE_WITH_HIP)
 #include <stddef.h>
 #include <string>
 #include <vector>
@@ -86,28 +108,28 @@ size_t GpuMaxChunkSize();
 
 //! Copy memory from address src to dst asynchronously.
 void GpuMemcpyAsync(void *dst, const void *src, size_t count,
-                    enum cudaMemcpyKind kind, cudaStream_t stream);
+                    gpuMemcpyKind kind, gpuStream_t stream);
 
 //! Copy memory from address src to dst synchronously.
 void GpuMemcpySync(void *dst, const void *src, size_t count,
-                   enum cudaMemcpyKind kind);
+                   gpuMemcpyKind kind);
 
 //! Copy memory from one device to another device asynchronously.
 void GpuMemcpyPeerAsync(void *dst, int dst_device, const void *src,
-                        int src_device, size_t count, cudaStream_t stream);
+                        int src_device, size_t count, gpuStream_t stream);
 
 //! Copy memory from one device to another device synchronously.
 void GpuMemcpyPeerSync(void *dst, int dst_device, const void *src,
                        int src_device, size_t count);
 
 //! Set memory dst with value count size asynchronously
-void GpuMemsetAsync(void *dst, int value, size_t count, cudaStream_t stream);
+void GpuMemsetAsync(void *dst, int value, size_t count, gpuStream_t stream);
 
 //! Blocks until stream has completed all operations.
-void GpuStreamSync(cudaStream_t stream);
+void GpuStreamSync(gpuStream_t stream);
 
 //! CudaMalloc with recorded info
-cudaError_t RecordedCudaMalloc(void **ptr, size_t size, int dev_id);
+gpuError_t RecordedCudaMalloc(void **ptr, size_t size, int dev_id);
 
 //! CudaFree with recorded info
 void RecordedCudaFree(void *p, size_t size, int dev_id);

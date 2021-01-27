@@ -37,7 +37,7 @@ namespace platform {
 using framework::Tensor;
 
 template <typename T>
-inline cudnnDataType_t ToCudnnDataType(const T& t) {
+inline gpuDnnDataType_t ToCudnnDataType(const T& t) {
   auto type = framework::ToDataType(t);
   return ToCudnnDataType(type);
 }
@@ -65,6 +65,24 @@ inline std::vector<int> TransformDimOrder(const std::vector<int>& dims) {
   return transformed_dims;
 }
 
+#ifdef PADDLE_WITH_HIP
+template <>
+inline miopenDataType_t ToCudnnDataType(
+    const framework::proto::VarType::Type& t) {
+  miopenDataType_t type = miopenFloat;
+  switch (t) {
+    case framework::proto::VarType::FP16:
+      type = miopenHalf;
+      break;
+    case framework::proto::VarType::FP32:
+      type = miopenFloat;
+      break;
+    default:
+      break;
+  }
+  return type;
+}
+#else
 template <>
 inline cudnnDataType_t ToCudnnDataType(
     const framework::proto::VarType::Type& t) {
@@ -84,7 +102,32 @@ inline cudnnDataType_t ToCudnnDataType(
   }
   return type;
 }
+#endif
 
+#ifdef PADDLE_WITH_HIP
+class ActivationDescriptor {
+ public:
+  ActivationDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenCreateActivationDescriptor(&desc_));
+  }
+  ~ActivationDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenDestroyActivationDescriptor(desc_));
+  }
+  template <typename T>
+  void set(miopenActivationMode_t mode, const T& coef) {
+    PADDLE_ENFORCE_CUDA_SUCCESS(dynload::miopenSetActivationDescriptor(
+        desc_, mode, static_cast<double>(coef), 0.0, 0.0));
+  }
+
+  miopenActivationDescriptor_t desc() { return desc_; }
+  miopenActivationDescriptor_t desc() const { return desc_; }
+
+ private:
+  miopenActivationDescriptor_t desc_;
+};
+#else
 class ActivationDescriptor {
  public:
   using T = cudnnActivationStruct;
@@ -115,7 +158,41 @@ class ActivationDescriptor {
  private:
   std::unique_ptr<T, Deleter> desc_;
 };
+#endif
 
+#ifdef PADDLE_WITH_HIP
+class TensorDescriptor {
+ public:
+  TensorDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenCreateTensorDescriptor(&desc_));
+  }
+  ~TensorDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenDestroyTensorDescriptor(desc_));
+  }
+  miopenTensorDescriptor_t desc() { return desc_; }
+  miopenTensorDescriptor_t desc() const { return desc_; }
+  void set(const Tensor& tensor, const int groups = 1) {
+    auto dims = framework::vectorize<int>(tensor.dims());
+    std::vector<int> strides(dims.size());
+    strides[dims.size() - 1] = 1;
+    for (int i = dims.size() - 2; i >= 0; i--) {
+      strides[i] = dims[i + 1] * strides[i + 1];
+    }
+    std::vector<int> dims_with_group(dims.begin(), dims.end());
+    if (groups > 1) {
+      dims_with_group[1] = dims_with_group[1] / groups;
+    }
+    PADDLE_ENFORCE_CUDA_SUCCESS(dynload::miopenSetTensorDescriptor(
+        desc_, ToCudnnDataType(tensor.type()), dims_with_group.size(),
+        const_cast<int*>(dims_with_group.data()), const_cast<int*>(strides.data())));
+  }
+
+ private:
+  miopenTensorDescriptor_t desc_;
+};
+#else
 class TensorDescriptor {
  public:
   using T = cudnnTensorStruct;
@@ -166,7 +243,48 @@ class TensorDescriptor {
  private:
   std::unique_ptr<T, Deleter> desc_;
 };
+#endif
 
+#ifdef PADDLE_WITH_HIP
+class FilterDescriptor {
+ public:
+  FilterDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenCreateTensorDescriptor(&desc_));
+  }
+  ~FilterDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenDestroyTensorDescriptor(desc_));
+  }
+  miopenTensorDescriptor_t desc() { return desc_; }
+  miopenTensorDescriptor_t desc() const { return desc_; }
+  
+  void set(const Tensor& tensor, const miopenTensorFormat_t format,
+           const int groups = 1) {
+    auto dims = framework::vectorize<int>(tensor.dims());
+    std::vector<int> transformed_dims;
+    if (format == MIOPEN_TENSOR_NHWC) {
+      transformed_dims = TransformDimOrder(dims);
+    } else {
+      transformed_dims = dims;
+    }
+    if (groups > 1) {
+      transformed_dims[1] = transformed_dims[1] / groups;
+    }
+    std::vector<int> strides(transformed_dims.size());
+    strides[transformed_dims.size() - 1] = 1;
+    for (int i = transformed_dims.size() - 2; i >= 0; i--) {
+      strides[i] = transformed_dims[i + 1] * strides[i + 1];
+    }
+    PADDLE_ENFORCE_CUDA_SUCCESS(dynload::miopenSetTensorDescriptor(
+        desc_, ToCudnnDataType(tensor.type()), transformed_dims.size(), 
+        const_cast<int*>(transformed_dims.data()), const_cast<int*>(strides.data())));
+  }
+
+ private:
+  miopenTensorDescriptor_t desc_;
+};
+#else
 class FilterDescriptor {
  public:
   using T = cudnnFilterStruct;
@@ -206,7 +324,36 @@ class FilterDescriptor {
  private:
   std::unique_ptr<T, Deleter> desc_;
 };
+#endif
 
+#ifdef PADDLE_WITH_HIP
+class ConvolutionDescriptor {
+ public:
+  ConvolutionDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenCreateConvolutionDescriptor(&desc_));
+  }
+  ~ConvolutionDescriptor() {
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        dynload::miopenDestroyConvolutionDescriptor(desc_));
+  }
+  miopenConvolutionDescriptor_t desc() { return desc_; }
+  miopenConvolutionDescriptor_t desc() const { return desc_; }
+
+  void set(gpuDnnDataType_t dtype, const std::vector<int>& pads,
+           const std::vector<int>& strides, const std::vector<int>& dilations,
+           bool allow_tf32, const int groups = 1) {
+    PADDLE_ENFORCE_CUDA_SUCCESS(dynload::miopenInitConvolutionNdDescriptor(
+        desc_, pads.size(), const_cast<int*>(pads.data()), const_cast<int*>(strides.data()), 
+        const_cast<int*>(dilations.data()), miopenConvolution));
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        platform::dynload::miopenSetConvolutionGroupCount(desc_, groups));
+  }
+
+ private:
+  miopenConvolutionDescriptor_t desc_;
+};
+#else
 class ConvolutionDescriptor {
  public:
   using T = cudnnConvolutionStruct;
@@ -263,6 +410,7 @@ class ConvolutionDescriptor {
  private:
   std::unique_ptr<T, Deleter> desc_;
 };
+#endif
 
 }  // namespace platform
 }  // namespace paddle

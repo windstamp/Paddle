@@ -194,7 +194,7 @@ void OperatorBase::Run(const Scope& scope, const platform::Place& place) {
   try {
     VLOG(4) << place << " " << DebugStringEx(&scope);
     if (platform::is_gpu_place(place)) {
-#ifndef PADDLE_WITH_CUDA
+#if !defined(PADDLE_WITH_CUDA) && !defined(PADDLE_WITH_HIP)
       PADDLE_THROW(platform::errors::Unavailable(
           "Cannot run operator on place %s, please recompile paddle or "
           "reinstall Paddle with CUDA support.",
@@ -1562,8 +1562,8 @@ void OperatorWithKernel::ParseInputDataType(
                 "not initialized.",
                 Type(), name, ctx.InputNames(name).at(i)));
         proto::VarType::Type tmp = t->type();
-        PADDLE_ENFORCE(
-            tmp == *data_type || *data_type == default_data_type,
+        PADDLE_ENFORCE_EQ(
+            tmp == *data_type || *data_type == default_data_type, true,
             platform::errors::InvalidArgument(
                 "The DataType of %s Op's duplicable Variable %s must be "
                 "consistent. The current variable type is (%s), but the "

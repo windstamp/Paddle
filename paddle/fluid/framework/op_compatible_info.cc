@@ -24,8 +24,8 @@ namespace framework {
 
 inline std::vector<int> ConvertStr2Int(const std::string& str_text) {
   auto vec_text = string::split_string<std::string>(str_text, ".");
-  PADDLE_ENFORCE(
-      (vec_text.size() == 2 || vec_text.size() == 3),
+  PADDLE_ENFORCE_EQ(
+      (vec_text.size() == 2 || vec_text.size() == 3), true,
       platform::errors::InvalidArgument(
           "Input[%s] is not a right version format [1.6 or 1.6.0].", str_text));
 

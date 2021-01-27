@@ -26,8 +26,8 @@ void FusionSeqPoolCVMConcatOp::InferShape(
       ctx->Inputs("X").size(), 1UL,
       paddle::platform::errors::InvalidArgument(
           "Inputs(X) of FusionSeqPoolCVMConcatOp should not be empty."));
-  PADDLE_ENFORCE(
-      ctx->HasOutput("Out"),
+  PADDLE_ENFORCE_EQ(
+      ctx->HasOutput("Out"), true,
       paddle::platform::errors::InvalidArgument(
           "Output(Out) of FusionSeqPoolCVMConcatOp should not be null."));
   int axis = ctx->Attrs().Get<int>("axis");

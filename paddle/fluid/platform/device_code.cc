@@ -73,23 +73,33 @@ DeviceCodePool::DeviceCodePool(const std::vector<platform::Place>& places) {
   }
   for (auto& p : set) {
     if (is_gpu_place(p)) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
       device_codes_.emplace(p, DeviceCodeMap());
 #else
       PADDLE_THROW(platform::errors::PreconditionNotMet(
-          "CUDAPlace is not supported, please re-compile with WITH_GPU=ON."));
+          "CUDAPlace or HIPPlace is not supported, please re-compile with "
+          "WITH_GPU=ON or WITH_ROCM=ON."));
 #endif
     }
   }
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
   CUDADeviceCode::CheckAvailableStatus();
 #endif
 }
 
-#ifdef PADDLE_WITH_CUDA
-static bool CheckCUDADriverResult(CUresult result, std::string caller,
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+static bool CheckCUDADriverResult(gpuError_t result, std::string caller,
                                   std::string kernel_name = "") {
+#ifdef PADDLE_WITH_HIP
+  if (result != hipSuccess) {
+    LOG_FIRST_N(WARNING, 1)
+        << "Call " << caller << " for < " << kernel_name
+        << " > failed: " << dynload::hipGetErrorString(result) << " (" << result
+        << ")";
+    return false;
+  }
+#else
   if (result != CUDA_SUCCESS) {
     const char* error = nullptr;
     dynload::cuGetErrorString(result, &error);
@@ -97,6 +107,7 @@ static bool CheckCUDADriverResult(CUresult result, std::string caller,
                             << " > failed: " << error << " (" << result << ")";
     return false;
   }
+#endif
   return true;
 }
 
@@ -109,14 +120,15 @@ void CUDADeviceCode::CheckAvailableStatus() {
     return;
   }
 
+#ifdef PADDLE_WITH_CUDA
   int nvrtc_major = 0;
   int nvrtc_minor = 0;
-  nvrtcResult nvrtc_result = dynload::nvrtcVersion(&nvrtc_major, &nvrtc_minor);
+  gpurtcResult nvrtc_result = dynload::nvrtcVersion(&nvrtc_major, &nvrtc_minor);
 
   int driver_version = 0;
   int dirver_major = 0;
   int driver_minor = 0;
-  CUresult driver_result = dynload::cuDriverGetVersion(&driver_version);
+  gpuError_t driver_result = dynload::cuDriverGetVersion(&driver_version);
   if (driver_result == CUDA_SUCCESS) {
     dirver_major = driver_version / 1000;
     driver_minor = (driver_version % 1000) / 10;
@@ -128,12 +140,20 @@ void CUDADeviceCode::CheckAvailableStatus() {
   if (nvrtc_result != NVRTC_SUCCESS || driver_result != CUDA_SUCCESS) {
     return;
   }
+#endif
 
   int count = 0;
+#ifdef PADDLE_WITH_HIP
+  if (CheckCUDADriverResult(dynload::hipGetDeviceCount(&count),
+                            "hipGetDeviceCount")) {
+    available_ = true;
+  }
+#else
   if (CheckCUDADriverResult(dynload::cuDeviceGetCount(&count),
                             "cuDeviceGetCount")) {
     available_ = true;
   }
+#endif
 }
 
 static std::string FindCUDAIncludePath() {
@@ -165,14 +185,20 @@ static std::string FindCUDAIncludePath() {
     }
   }
 
+#ifdef PADDLE_WITH_HIP
+  cuda_include_path = "/opt/rocm/include";
+#else
   cuda_include_path = "/usr/local/cuda/include";
+#endif
+
   if (stat(cuda_include_path.c_str(), &st) == 0) {
     return cuda_include_path;
   }
-  LOG(WARNING) << "Cannot find CUDA include path."
-               << "Please check whether CUDA is installed in the default "
-                  "installation path, or specify it by export "
-                  "FLAGS_cuda_dir=xxx.";
+  LOG(WARNING)
+      << "Cannot find CUDA or ROCM include path."
+      << "Please check whether CUDA or ROCM is installed in the default "
+         "installation path, or specify it by export "
+         "FLAGS_cuda_dir=xxx.";
   return "";
 }
 
@@ -185,7 +211,11 @@ CUDADeviceCode::CUDADeviceCode(const Place& place, const std::string& name,
 
   place_ = place;
   name_ = name;
+#ifdef PADDLE_WITH_HIP
+  kernel_ = "#include <hip/hip_runtime.h>\n" + kernel;
+#else
   kernel_ = kernel;
+#endif
 }
 
 bool CUDADeviceCode::Compile(bool include_path) {
@@ -195,7 +225,86 @@ bool CUDADeviceCode::Compile(bool include_path) {
         << "NVRTC and CUDA driver are need for JIT compiling of CUDA code.";
     return false;
   }
+#ifdef PADDLE_WITH_HIP
+  hiprtcProgram program;
+  if (!CheckNVRTCResult(dynload::hiprtcCreateProgram(&program,
+                                                     kernel_.c_str(),  // buffer
+                                                     name_.c_str(),    // name
+                                                     0,         // numHeaders
+                                                     nullptr,   // headers
+                                                     nullptr),  // includeNames
+                        "hiprtcCreateProgram")) {
+    return false;
+  }
 
+  // Compile the program for specified compute_capability
+  auto* dev_ctx = reinterpret_cast<CUDADeviceContext*>(
+      DeviceContextPool::Instance().Get(place_));
+  int compute_capability = dev_ctx->GetComputeCapability();
+  std::cout << "======= compute_capability is " << compute_capability << std::endl;
+  std::vector<const char*> options = {"-std=c++11", "--amdgpu-target=gfx906"};
+  std::cout << "======= include_path is " << include_path << std::endl;
+  if (include_path) {
+    std::string cuda_include_path = FindCUDAIncludePath();
+    std::cout << "==================== cuda_include_path is " << cuda_include_path << std::endl;
+    if (!cuda_include_path.empty()) {
+      std::string include_option = "--include-path=" + cuda_include_path;
+      options.push_back(include_option.c_str());
+    }
+  }
+  gpurtcResult compile_result =
+      dynload::hiprtcCompileProgram(program,          // program
+                                    options.size(),   // numOptions
+                                    options.data());  // options
+  if (compile_result == HIPRTC_ERROR_COMPILATION) {
+    // Obtain compilation log from the program
+    size_t log_size;
+    if (!CheckNVRTCResult(dynload::hiprtcGetProgramLogSize(program, &log_size),
+                          "hiprtcGetProgramLogSize")) {
+      return false;
+    }
+    std::vector<char> log;
+    log.resize(log_size + 1);
+    if (!CheckNVRTCResult(dynload::hiprtcGetProgramLog(program, log.data()),
+                          "hiprtcGetProgramLog")) {
+      return false;
+    }
+    LOG(WARNING) << "JIT compiling of ROCM GPU code failed:"
+                 << "\n  Kernel name: " << name_ << "\n  Kernel body:\n"
+                 << kernel_ << "\n  Compiling log: " << log.data();
+
+    return false;
+  }
+
+  // Obtain PTX from the program for cuda
+  // Obtain Code from the program for hip
+  size_t ptx_size;
+  if (!CheckNVRTCResult(dynload::hiprtcGetCodeSize(program, &ptx_size),
+                        "hiprtcGetCodeSize")) {
+    return false;
+  }
+  ptx_.resize(ptx_size + 1);
+  if (!CheckNVRTCResult(dynload::hiprtcGetCode(program, ptx_.data()),
+                        "hiprtcGetCode")) {
+    return false;
+  }
+
+  if (!CheckNVRTCResult(dynload::hiprtcDestroyProgram(&program),
+                        "hiprtcDestroyProgram")) {
+    return false;
+  }
+
+  if (!CheckCUDADriverResult(dynload::hipModuleLoadData(&module_, ptx_.data()),
+                             "hipModuleLoadData")) {
+    return false;
+  }
+
+  if (!CheckCUDADriverResult(
+          dynload::hipModuleGetFunction(&function_, module_, name_.c_str()),
+          "hipModuleGetFunction")) {
+    return false;
+  }
+#else
   nvrtcProgram program;
   if (!CheckNVRTCResult(dynload::nvrtcCreateProgram(&program,
                                                     kernel_.c_str(),  // buffer
@@ -222,7 +331,7 @@ bool CUDADeviceCode::Compile(bool include_path) {
       options.push_back(include_option.c_str());
     }
   }
-  nvrtcResult compile_result =
+  gpurtcResult compile_result =
       dynload::nvrtcCompileProgram(program,          // program
                                    options.size(),   // numOptions
                                    options.data());  // options
@@ -273,6 +382,7 @@ bool CUDADeviceCode::Compile(bool include_path) {
           "cuModuleGetFunction", name_)) {
     return false;
   }
+#endif
 
   max_threads_ = dev_ctx->GetMaxPhysicalThreadCount();
   is_compiled_ = true;
@@ -293,6 +403,18 @@ void CUDADeviceCode::Launch(const size_t n, std::vector<void*>* args) const {
 
   auto* dev_ctx = reinterpret_cast<CUDADeviceContext*>(
       DeviceContextPool::Instance().Get(place_));
+#ifdef PADDLE_WITH_HIP
+  PADDLE_ENFORCE_EQ(
+      dynload::hipModuleLaunchKernel(function_, num_blocks, 1, 1,  // grid dim
+                                     num_threads_, 1, 1,           // block dim
+                                     0,                  // shared memory
+                                     dev_ctx->stream(),  // stream
+                                     args->data(),       // arguments
+                                     nullptr),
+      hipSuccess,
+      errors::External("Fail to launch kernel %s (in hipModuleLaunchKernel.)",
+                       name_.c_str()));
+#else
   PADDLE_ENFORCE_EQ(
       dynload::cuLaunchKernel(function_, num_blocks, 1, 1,  // grid dim
                               num_threads_, 1, 1,           // block dim
@@ -303,16 +425,26 @@ void CUDADeviceCode::Launch(const size_t n, std::vector<void*>* args) const {
       CUDA_SUCCESS,
       errors::External("Fail to launch kernel %s (in cuLaunchKernel.)",
                        name_.c_str()));
+#endif
 }
 
-bool CUDADeviceCode::CheckNVRTCResult(nvrtcResult result,
+bool CUDADeviceCode::CheckNVRTCResult(gpurtcResult result,
                                       std::string function) {
+#ifdef PADDLE_WITH_HIP
+  if (result != HIPRTC_SUCCESS) {
+    LOG_FIRST_N(WARNING, 1)
+        << "Call " << function << " for < " << name_
+        << " > failed: " << dynload::hiprtcGetErrorString(result);
+    return false;
+  }
+#else
   if (result != NVRTC_SUCCESS) {
     LOG_FIRST_N(WARNING, 1)
         << "Call " << function << " for < " << name_
         << " > failed: " << dynload::nvrtcGetErrorString(result);
     return false;
   }
+#endif
   return true;
 }
 #endif

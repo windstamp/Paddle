@@ -39,23 +39,23 @@ namespace math {
 template <class T>
 class MaxPool {
  public:
-  DEVICE inline T initial() { return static_cast<T>(-FLT_MAX); }
-  DEVICE inline void compute(const T& x, T* y) { *y = *y > x ? *y : x; }
-  DEVICE inline void finalize(const T& pool_field, T* y) {}
+  HOSTDEVICE inline T initial() { return static_cast<T>(-FLT_MAX); }
+  HOSTDEVICE inline void compute(const T& x, T* y) { *y = *y > x ? *y : x; }
+  HOSTDEVICE inline void finalize(const T& pool_field, T* y) {}
 };
 
 template <class T>
 class AvgPool {
  public:
-  DEVICE inline T initial() { return static_cast<T>(0); }
-  DEVICE inline void compute(const T& x, T* y) { *y += x; }
-  DEVICE inline void finalize(const T& pool_field, T* y) { *y /= pool_field; }
+  HOSTDEVICE inline T initial() { return static_cast<T>(0); }
+  HOSTDEVICE inline void compute(const T& x, T* y) { *y += x; }
+  HOSTDEVICE inline void finalize(const T& pool_field, T* y) { *y /= pool_field; }
 };
 
 template <class T>
 class MaxPoolGrad {
  public:
-  DEVICE inline void compute(const T& x, const T& y, const T& dy, T scale,
+  HOSTDEVICE inline void compute(const T& x, const T& y, const T& dy, T scale,
                              T* dx) {
     *dx += dy * static_cast<T>(x == y);
   }
@@ -64,7 +64,7 @@ class MaxPoolGrad {
 template <class T>
 class AvgPoolGrad {
  public:
-  DEVICE inline void compute(const T& x, const T& y, const T& dy, T scale,
+  HOSTDEVICE inline void compute(const T& x, const T& y, const T& dy, T scale,
                              T* dx) {
     *dx += (scale * dy);
   }
@@ -97,7 +97,7 @@ HOSTDEVICE inline int AdaptEndIndex(int ph, int input_size, int output_size) {
  * This is different from average pooling. So we rewrite the max_pool_grad:
  * MaxPool2dGradFunctor, MaxPool3dGradFunctor.
  */
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 template <typename PoolProcess, typename T>
 class Pool2dDirectCUDAFunctor {
  public:
@@ -107,7 +107,7 @@ class Pool2dDirectCUDAFunctor {
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings, PoolProcess pool_compute,
                   bool exclusive, bool adaptive, T* output,
-                  cudaStream_t stream);
+                  gpuStream_t stream);
 };
 #endif
 

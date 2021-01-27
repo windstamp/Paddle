@@ -12,7 +12,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include <cuda_runtime.h>
 #include <algorithm>
 #include "paddle/fluid/framework/tensor.h"
 #include "paddle/fluid/framework/tensor_util.h"
@@ -24,6 +23,10 @@ limitations under the License. */
 namespace paddle {
 namespace operators {
 namespace math {
+
+#ifdef PADDLE_WITH_HIP
+namespace cub = hipcub;
+#endif
 
 template <typename T, int TPB>
 __device__ inline void LayerNormSmall(T val, const kvp<T> &thread_data,
@@ -50,6 +53,31 @@ __device__ inline void LayerNormSmall(T val, const kvp<T> &thread_data,
   }
 }
 
+template <int TPB>
+__device__ inline void LayerNormSmallHalf(half val, const kvp<half> &thread_data,
+                                      const int ld, const int idx,
+                                      const float *bias, const float *scale,
+                                      half *output, half eps) {
+  using BlockReduce = cub::BlockReduce<kvp<half>, TPB>;
+  __shared__ typename BlockReduce::TempStorage temp_storage;
+  __shared__ half mu;      // mean
+  __shared__ half rsigma;  // 1 / std.dev.
+
+  const auto sum_kv = BlockReduce(temp_storage).Reduce(thread_data, cub::Sum());
+
+  if (threadIdx.x == 0) {
+    mu = sum_kv.key;
+    rsigma = hrsqrt(sum_kv.value - mu * mu + eps);
+  }
+  __syncthreads();
+
+  if (threadIdx.x < ld) {
+    const half g = __float2half(scale[threadIdx.x]);
+    const half b = __float2half(bias[threadIdx.x]);
+    output[idx] = g * (val - mu) * rsigma + b;
+  }
+}
+
 template <typename T, int TPB>
 __device__ inline void LayerNorm(const kvp<T> &thread_data, const int ld,
                                  const int offset, const float *bias,
@@ -72,6 +100,32 @@ __device__ inline void LayerNorm(const kvp<T> &thread_data, const int ld,
     const T val = output[idx];
     const T g(scale[i]);
     const T b(bias[i]);
+    output[idx] = g * (val - mu) * rsigma + b;
+  }
+}
+
+template <int TPB>
+__device__ inline void LayerNormHalf(const kvp<half> &thread_data, const int ld,
+                                 const int offset, const float *bias,
+                                 const float *scale, half *output, half eps) {
+  using BlockReduce = cub::BlockReduce<kvp<half>, TPB>;
+  __shared__ typename BlockReduce::TempStorage temp_storage;
+  __shared__ half mu;      // mean
+  __shared__ half rsigma;  // 1 / std.dev.
+
+  const auto sum_kv = BlockReduce(temp_storage).Reduce(thread_data, cub::Sum());
+
+  if (threadIdx.x == 0) {
+    mu = sum_kv.key;
+    rsigma = hrsqrt(sum_kv.value - mu * mu + eps);
+  }
+  __syncthreads();
+
+  for (int i = threadIdx.x; i < ld; i += TPB) {
+    const int idx = offset + i;
+    const half val = output[idx];
+    const half g = __float2half(scale[i]);
+    const half b = __float2half(bias[i]);
     output[idx] = g * (val - mu) * rsigma + b;
   }
 }
@@ -104,6 +158,35 @@ __device__ inline void LayerNorm2(const kvp<T> &thread_data, const int ld,
   }
 }
 
+template <int TPB>
+__device__ inline void LayerNorm2Half(const kvp<half> &thread_data, const int ld,
+                                  const int offset, const float2 *bias,
+                                  const float2 *scale, half2 *output, half eps) {
+  using BlockReduce = cub::BlockReduce<kvp<half>, TPB>;
+  __shared__ typename BlockReduce::TempStorage temp_storage;
+  __shared__ half mu;      // mean
+  __shared__ half rsigma;  // 1 / std.dev.
+
+  const auto sum_kv = BlockReduce(temp_storage).Reduce(thread_data, cub::Sum());
+
+  if (threadIdx.x == 0) {
+    mu = sum_kv.key;
+    rsigma = hrsqrt(sum_kv.value - mu * mu + eps);
+  }
+  __syncthreads();
+
+  for (int i = threadIdx.x; i < ld; i += TPB) {
+    const int idx = offset + i;
+    half2 val = output[idx];
+    const float2 g = scale[i];
+    const float2 b = bias[i];
+    half val_x = __float2half(g.x) * (__low2half(val) - mu) * rsigma + __float2half(b.x);
+    half val_y = __float2half(g.y) * (__high2half(val) - mu) * rsigma + __float2half(b.y);
+    val = __halves2half2(val_x, val_y);
+    output[idx] = val;
+  }
+}
+
 template <typename T, unsigned TPB>
 __global__ void EmbEltwiseLayernormKernel(int hidden, const int64_t *ids,
                                           const float *scale, const float *bias,
@@ -115,7 +198,11 @@ __global__ void EmbEltwiseLayernormKernel(int hidden, const int64_t *ids,
   // gridDim.x: Seq
   // gridDim.y: Batch
 
+#ifdef PADDLE_WITH_CUDA
   extern __shared__ int64_t array_id[];
+#else
+  HIP_DYNAMIC_SHARED(int64_t, array_id);
+#endif
 
   const T rhidden = T(1.f) / T(hidden);
   const int64_t seq_pos = blockIdx.y + blockIdx.x * gridDim.y;
@@ -149,16 +236,20 @@ template <>
 __global__ void EmbEltwiseLayernormKernel<half, 256>(
     int hidden, const int64_t *ids, const float *scale, const float *bias,
     const int64_t *embs, half *output, float eps, int input_num) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
   cub::Sum pair_sum;
   // blockIdx.x: position in the sequence
   // blockIdx.y: batch
   // gridDim.x: Seq
   // gridDim.y: Batch
 
+#ifdef PADDLE_WITH_CUDA
   extern __shared__ int64_t array_id[];
+#else
+  HIP_DYNAMIC_SHARED(int64_t, array_id);
+#endif
 
-  const half rhidden = half(1.f) / half(hidden);
+  const half rhidden = __float2half(1.f) / __int2half_rn(hidden);
   const int64_t seq_pos = blockIdx.y + blockIdx.x * gridDim.y;
   if (threadIdx.x == 0) {
     for (int i = 0; i < input_num; ++i) {
@@ -170,11 +261,11 @@ __global__ void EmbEltwiseLayernormKernel<half, 256>(
 
   const int64_t out_offset = seq_pos * hidden;
 
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
 
 #pragma unroll
   for (int it = threadIdx.x; it < hidden; it += 256) {
-    half val = 0;
+    half val = __int2half_rn(0);
     for (int i = 0; i < input_num; ++i) {
       val += reinterpret_cast<const half *>(embs[i])[array_id[i] * hidden + it];
     }
@@ -184,8 +275,8 @@ __global__ void EmbEltwiseLayernormKernel<half, 256>(
     thread_data =
         pair_sum(thread_data, kvp<half>(rhiddenval, rhiddenval * val));
   }
-  LayerNorm<half, 256>(thread_data, hidden, out_offset, bias, scale, output,
-                       eps);
+  LayerNormHalf<256>(thread_data, hidden, out_offset, bias, scale, output,
+                       __float2half(eps));
 #endif
 }
 
@@ -193,19 +284,24 @@ template <typename T>
 void EmbEltwiseLayerNormFunctor<T>::operator()(
     int batch, int seq_len, int hidden, const int64_t *ids, const float *scale,
     const float *bias, const int64_t *embs, T *output, float eps, int input_num,
-    cudaStream_t stream) {
+    gpuStream_t stream) {
   const unsigned tpb = 256;
   const dim3 grid(seq_len, batch, 1);
   const dim3 block(tpb, 1, 1);
   int shared_bytes = input_num * sizeof(int64_t);
+#ifdef PADDLE_WITH_CUDA
   EmbEltwiseLayernormKernel<T, tpb><<<grid, block, shared_bytes, stream>>>(
       hidden, ids, scale, bias, embs, output, eps, input_num);
+#else
+  hipLaunchKernelGGL(HIP_KERNEL_NAME(EmbEltwiseLayernormKernel<T, tpb>), dim3(grid), dim3(block), shared_bytes, stream, 
+      hidden, ids, scale, bias, embs, output, eps, input_num);
+#endif
 }
 
 template class EmbEltwiseLayerNormFunctor<float>;
 
 // device function 'operator()' is not supportted until cuda 10.0
-#if CUDA_VERSION >= 10000
+#if defined(PADDLE_WITH_HIP) || CUDA_VERSION >= 10000
 template class EmbEltwiseLayerNormFunctor<half>;
 #endif
 
@@ -234,12 +330,12 @@ template <>
 __global__ void SoftmaxKernelWithEltadd<half>(
     half *qk_buf_, const half *bias_qk_, const int batch_size,
     const int head_num, const int seq_len, const unsigned mask) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
   int qk_offset = blockIdx.x * seq_len;
   assert(blockDim.x % 32 == 0);
 
   float tmp = threadIdx.x < seq_len
-                  ? static_cast<float>(qk_buf_[threadIdx.x + qk_offset] +
+                  ? __half2float(qk_buf_[threadIdx.x + qk_offset] +
                                        bias_qk_[threadIdx.x + qk_offset])
                   : -1e20f;
   float max_val = blockReduceMax<float>(tmp, mask);
@@ -248,7 +344,7 @@ __global__ void SoftmaxKernelWithEltadd<half>(
   float sum_val = blockReduceSum<float>(qk_tmp, mask);
 
   if (threadIdx.x < seq_len)
-    qk_buf_[threadIdx.x + qk_offset] = (half)(qk_tmp / sum_val);
+    qk_buf_[threadIdx.x + qk_offset] = __float2half(qk_tmp / sum_val);
 #endif
 }
 
@@ -282,7 +378,7 @@ __global__ void SoftmaxKernelWithEltadd2<half2>(
     half2 *qk_buf_, const half2 *bias_qk_, const int batch_size,
     const int head_num, const int seq_len, const unsigned mask) {
 // operator "+" of half only suppotted after cuda version 10.0
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__) && CUDA_VERSION >= 10000
+#if defined(__HIPCC__) || (CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__) && CUDA_VERSION >= 10000)
   int qk_offset = blockIdx.x * seq_len;
   int idx = threadIdx.x;
   assert(blockDim.x % 32 == 0);
@@ -398,8 +494,25 @@ void MultiHeadGPUComputeFunctor<T>::operator()(
 template class MultiHeadGPUComputeFunctor<float>;
 
 // device function 'operator()' is not supportted until cuda 10.0
-#if CUDA_VERSION >= 10000
-template class MultiHeadGPUComputeFunctor<half>;
+#if defined(PADDLE_WITH_HIP) || CUDA_VERSION >= 10000
+template <>
+void MultiHeadGPUComputeFunctor<half>::operator()(
+    const platform::CUDADeviceContext &dev_ctx, int batch, int seq_len,
+    int head_num, int head_size, half *qkptr, const half *bias_qk_ptr, half *tptr,
+    half alpha, half beta) {
+  auto stream = dev_ctx.stream();
+  const int tsize = batch * head_num * seq_len * head_size;
+
+  half *qptr = tptr;
+  half *kptr = qptr + tsize;
+  half *vptr = kptr + tsize;
+  // batch gemm stride, softmaxwithscale.
+  MatMulWithHeadQK<half>(dev_ctx, head_num, seq_len, head_size, batch, false, true,
+                      qptr, kptr, qkptr, bias_qk_ptr, alpha, beta);
+  // batch gemm stride, transpose.
+  MatMulWithHeadQKV<half>(dev_ctx, head_num, seq_len, head_size, batch, false,
+                       false, vptr, qkptr, tptr, __float2half(1.0), beta);
+}
 #endif
 
 template <typename T, unsigned TPB>
@@ -426,20 +539,20 @@ template <>
 __global__ void SkipLayerNormSmallKernel<half, 32>(
     int num, int hidden, const half *input1, const half *input2, half *output,
     const float *scale, const float *bias, float eps) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
-  const half rld = half(1) / half(hidden);
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+  const half rld = __int2half_rn(1) / __int2half_rn(hidden);
   const int offset = blockIdx.x * hidden;
   cub::Sum pair_sum;
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
   const int idx = offset + threadIdx.x;
-  half val = 0;
+  half val = __int2half_rn(0);
   if (threadIdx.x < hidden) {
     val = input1[idx] + input2[idx];
     const half rldval = rld * val;
     thread_data = pair_sum(thread_data, kvp<half>(rldval, rldval * val));
   }
-  LayerNormSmall<half, 32>(val, thread_data, hidden, idx, bias, scale, output,
-                           eps);
+  LayerNormSmallHalf<32>(val, thread_data, hidden, idx, bias, scale, output,
+                         __float2half(eps));
 #endif
 }
 
@@ -447,20 +560,20 @@ template <>
 __global__ void SkipLayerNormSmallKernel<half, 128>(
     int num, int hidden, const half *input1, const half *input2, half *output,
     const float *scale, const float *bias, float eps) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
-  const half rld = half(1) / half(hidden);
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+  const half rld = __int2half_rn(1) / __int2half_rn(hidden);
   const int offset = blockIdx.x * hidden;
   cub::Sum pair_sum;
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
   const int idx = offset + threadIdx.x;
-  half val = 0;
+  half val = __int2half_rn(0);
   if (threadIdx.x < hidden) {
     val = input1[idx] + input2[idx];
     const half rldval = rld * val;
     thread_data = pair_sum(thread_data, kvp<half>(rldval, rldval * val));
   }
-  LayerNormSmall<half, 128>(val, thread_data, hidden, idx, bias, scale, output,
-                            eps);
+  LayerNormSmallHalf<128>(val, thread_data, hidden, idx, bias, scale, output,
+                          __float2half(eps));
 #endif
 }
 
@@ -468,20 +581,20 @@ template <>
 __global__ void SkipLayerNormSmallKernel<half, 384>(
     int num, int hidden, const half *input1, const half *input2, half *output,
     const float *scale, const float *bias, float eps) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
-  const half rld = half(1) / half(hidden);
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+  const half rld = __int2half_rn(1) / __int2half_rn(hidden);
   const int offset = blockIdx.x * hidden;
   cub::Sum pair_sum;
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
   const int idx = offset + threadIdx.x;
-  half val = 0;
+  half val = __int2half_rn(0);
   if (threadIdx.x < hidden) {
     val = input1[idx] + input2[idx];
     const half rldval = rld * val;
     thread_data = pair_sum(thread_data, kvp<half>(rldval, rldval * val));
   }
-  LayerNormSmall<half, 384>(val, thread_data, hidden, idx, bias, scale, output,
-                            eps);
+  LayerNormSmallHalf<384>(val, thread_data, hidden, idx, bias, scale, output,
+                          __float2half(eps));
 #endif
 }
 
@@ -511,11 +624,11 @@ __global__ void SkipLayerNormKernel<half, 256>(int num, int hidden,
                                                const half *input2, half *output,
                                                const float *scale,
                                                const float *bias, float eps) {
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
-  const half rld = half(1) / half(hidden);
+#if defined(__HIPCC__) || CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+  const half rld = __int2half_rn(1) / __int2half_rn(hidden);
   const int offset = blockIdx.x * hidden;
   cub::Sum pair_sum;
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
 
   for (int it = threadIdx.x; it < hidden; it += 256) {
     const int idx = offset + it;
@@ -524,7 +637,7 @@ __global__ void SkipLayerNormKernel<half, 256>(int num, int hidden,
     thread_data = pair_sum(thread_data, kvp<half>(rldval, rldval * val));
     output[idx] = val;
   }
-  LayerNorm<half, 256>(thread_data, hidden, offset, bias, scale, output, eps);
+  LayerNormHalf<256>(thread_data, hidden, offset, bias, scale, output, __float2half(eps));
 #endif
 }
 
@@ -542,8 +655,8 @@ __global__ void SkipLayerNormKernel2(int num, int hidden, const T2 *input1,
     const int idx = offset + it;
     const T2 val2 = input1[idx] + input2[idx];
     thread_data = pair_sum(
-        thread_data, kvp<T>(rld * (val2.x + val2.y),
-                            rld * val2.x * val2.x + rld * val2.y * val2.y));
+        thread_data, kvp<T>(rld * (__low2half(val2) + __high2half(val2)),
+                            rld * __low2half(val2) * __low2half(val2) + rld * __high2half(val2) * __high2half(val2)));
     output[idx] = val2;
   }
   LayerNorm2<T, T2, TPB>(thread_data, hidden, offset, bias, scale, output, eps);
@@ -554,22 +667,22 @@ __global__ void SkipLayerNormKernel2<half, half2, 256>(
     int num, int hidden, const half2 *input1, const half2 *input2,
     half2 *output, const float2 *scale, const float2 *bias, float eps) {
 // operator "+" of half only suppotted after cuda version 10.0
-#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__) && CUDA_VERSION >= 10000
-  const half rld = half(0.5f / hidden);  // because hidden is hidden/2
+#if defined(__HIPCC__) || (CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__) && CUDA_VERSION >= 10000)
+  const half rld = __float2half(0.5f / hidden);  // because hidden is hidden/2
   const int offset = blockIdx.x * hidden;
   cub::Sum pair_sum;
-  kvp<half> thread_data(0, 0);
+  kvp<half> thread_data(__int2half_rn(0), __int2half_rn(0));
 
   for (int it = threadIdx.x; it < hidden; it += 256) {
     const int idx = offset + it;
     const half2 val2 = input1[idx] + input2[idx];
     thread_data = pair_sum(
-        thread_data, kvp<half>(rld * (val2.x + val2.y),
-                               rld * val2.x * val2.x + rld * val2.y * val2.y));
+        thread_data, kvp<half>(rld * (__low2half(val2) + __high2half(val2)),
+                               rld * __low2half(val2) * __low2half(val2) + rld * __high2half(val2) * __high2half(val2)));
     output[idx] = val2;
   }
-  LayerNorm2<half, half2, 256>(thread_data, hidden, offset, bias, scale, output,
-                               eps);
+  LayerNorm2Half<256>(thread_data, hidden, offset, bias, scale, output,
+                               __float2half(eps));
 #endif
 }
 
@@ -578,22 +691,38 @@ void SkipLayerNormFunctor<T>::operator()(const int num, const int hidden,
                                          const T *input1, const T *input2,
                                          const float *scale, const float *bias,
                                          T *output, T eps,
-                                         cudaStream_t stream) {
+                                         gpuStream_t stream) {
   int block = num / hidden;
   if (hidden <= 32) {
     const int threads = 32;
+#ifdef PADDLE_WITH_CUDA
     SkipLayerNormSmallKernel<T, threads><<<block, threads, 0, stream>>>(
         num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<T, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, eps);
+#endif
   } else if (hidden <= 128) {
     const int threads = 128;
+#ifdef PADDLE_WITH_CUDA
     SkipLayerNormSmallKernel<T, threads><<<block, threads, 0, stream>>>(
         num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<T, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, eps);
+#endif
   } else if (hidden == 384) {
     const int threads = 384;
+#ifdef PADDLE_WITH_CUDA
     SkipLayerNormSmallKernel<T, threads><<<block, threads, 0, stream>>>(
         num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<T, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, eps);
+#endif
   } else {
     const int threads = 256;
+#ifdef PADDLE_WITH_CUDA
     if (hidden % 2 == 0) {
       if (std::is_same<T, float>::value) {
         SkipLayerNormKernel2<float, float2,
@@ -619,14 +748,72 @@ void SkipLayerNormFunctor<T>::operator()(const int num, const int hidden,
       SkipLayerNormKernel<T, threads><<<block, threads, 0, stream>>>(
           num, hidden, input1, input2, output, scale, bias, eps);
     }
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormKernel<T, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, eps);
+#endif
   }
 }
 
 template class SkipLayerNormFunctor<float>;
 
 // device function 'operator()' is not supportted until cuda 10.0
-#if CUDA_VERSION >= 10000
-template class SkipLayerNormFunctor<half>;
+#if defined(PADDLE_WITH_HIP) || CUDA_VERSION >= 10000
+template <>
+void SkipLayerNormFunctor<half>::operator()(const int num, const int hidden,
+                                         const half *input1, const half *input2,
+                                         const float *scale, const float *bias,
+                                         half *output, half eps,
+                                         gpuStream_t stream) {
+  int block = num / hidden;
+  if (hidden <= 32) {
+    const int threads = 32;
+#ifdef PADDLE_WITH_CUDA
+    SkipLayerNormSmallKernel<half, threads><<<block, threads, 0, stream>>>(
+        num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<half, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, __half2float(eps));
+#endif
+  } else if (hidden <= 128) {
+    const int threads = 128;
+#ifdef PADDLE_WITH_CUDA
+    SkipLayerNormSmallKernel<half, threads><<<block, threads, 0, stream>>>(
+        num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<half, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, __half2float(eps));
+#endif
+  } else if (hidden == 384) {
+    const int threads = 384;
+#ifdef PADDLE_WITH_CUDA
+    SkipLayerNormSmallKernel<half, threads><<<block, threads, 0, stream>>>(
+        num, hidden, input1, input2, output, scale, bias, eps);
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormSmallKernel<half, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, __half2float(eps));
+#endif
+  } else {
+    const int threads = 256;
+#ifdef PADDLE_WITH_CUDA
+    if (hidden % 2 == 0) {
+      SkipLayerNormKernel2<__half, __half2,
+                           threads><<<block, threads, 0, stream>>>(
+          num, hidden / 2, reinterpret_cast<const __half2 *>(input1),
+          reinterpret_cast<const __half2 *>(input2),
+          reinterpret_cast<__half2 *>(output),
+          reinterpret_cast<const float2 *>(scale),
+          reinterpret_cast<const float2 *>(bias), eps);
+    } else {
+      SkipLayerNormKernel<half, threads><<<block, threads, 0, stream>>>(
+          num, hidden, input1, input2, output, scale, bias, eps);
+    }
+#else
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(SkipLayerNormKernel<half, threads>), dim3(block), dim3(threads), 0, stream, 
+        num, hidden, input1, input2, output, scale, bias, __half2float(eps));
+#endif
+  }
+}
 #endif
 
 }  // namespace math

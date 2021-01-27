@@ -24,6 +24,17 @@ limitations under the License. */
 #include "paddle/fluid/framework/operator_kernel_configs.h"
 #include "paddle/fluid/operators/conv_cudnn_op_cache.h"
 #include "paddle/fluid/platform/cudnn_desc.h"
+
+#ifdef PADDLE_WITH_CUDA
+#define GPUDNN_DEFAULT_MATH CUDNN_DEFAULT_MATH
+#define GPUDNN_TENSOR_OP_MATH CUDNN_TENSOR_OP_MATH
+#endif
+
+#ifdef PADDLE_WITH_HIP
+#define GPUDNN_DEFAULT_MATH platform::MIOPEN_DEFAULT_MATH
+#define GPUDNN_TENSOR_OP_MATH platform::MIOPEN_TENSOR_OP_MATH
+#endif
+
 namespace paddle {
 namespace operators {
 
@@ -92,7 +103,7 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
   return out;
 }
 
-inline int MaxBwdFilterAlgos(cudnnHandle_t cudnn_handle) {
+inline int MaxBwdFilterAlgos(gpuDnnHandle_t cudnn_handle) {
   int max_algos = 0;
 #if CUDNN_VERSION_MIN(7, 0, 1)
   PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -107,7 +118,7 @@ void ChooseAlgoByWorkspace(PerfType* perf_results, size_t perf_num,
                            size_t workspace_byte, AlgoType* algo) {
   for (size_t i = 0; i < perf_num; ++i) {
     auto result = perf_results[i];
-    if (result.status == CUDNN_STATUS_SUCCESS &&
+    if (result.status == GPUDNN_STATUS_SUCCESS &&
         result.memory < workspace_byte) {
       *algo = result.algo;
       VLOG(3) << "    algo: " << result.algo << ", time: " << result.time
@@ -126,7 +137,7 @@ void ChooseAlgo(const std::vector<PerfType>& perf_results,
   VLOG(3) << "=========BwdFilterAlgo Perf result=========";
   for (const auto& result : perf_results) {
     auto math_type_str = "False";
-    if (result.mathType == CUDNN_TENSOR_OP_MATH) {
+    if (result.mathType == GPUDNN_TENSOR_OP_MATH) {
       math_type_str = "True";
     }
     VLOG(3) << "    algo: " << result.algo << ", TensorCore: " << math_type_str
@@ -136,15 +147,15 @@ void ChooseAlgo(const std::vector<PerfType>& perf_results,
 
   for (size_t i = 0; i != perf_results.size(); ++i) {
     const auto& result = perf_results[i];
-    if (result.status == CUDNN_STATUS_SUCCESS &&
+    if (result.status == GPUDNN_STATUS_SUCCESS &&
         (result.memory <= workspace_byte)) {
-      if ((result.mathType == CUDNN_TENSOR_OP_MATH) &&
+      if ((result.mathType == GPUDNN_TENSOR_OP_MATH) &&
           (i != perf_results.size() - 1)) {
         const auto& next_result = perf_results[i + 1];
-        if (next_result.status == CUDNN_STATUS_SUCCESS &&
+        if (next_result.status == GPUDNN_STATUS_SUCCESS &&
             next_result.algo == result.algo &&
             next_result.memory == result.memory &&
-            next_result.mathType != CUDNN_TENSOR_OP_MATH &&
+            next_result.mathType != GPUDNN_TENSOR_OP_MATH &&
             next_result.time < 1.01 * result.time) {
           // Skip over this result- it's not really a Tensor Core algo.
           // Because it is only 1% performance difference.
@@ -154,7 +165,7 @@ void ChooseAlgo(const std::vector<PerfType>& perf_results,
       }
       *algo = result.algo;
       auto math_type_str = "0";
-      if (result.mathType == CUDNN_TENSOR_OP_MATH) {
+      if (result.mathType == GPUDNN_TENSOR_OP_MATH) {
         math_type_str = "1";
       }
       VLOG(3) << "    choose algo: " << result.algo << ", TC: " << math_type_str
@@ -168,12 +179,12 @@ void ChooseAlgo(const std::vector<PerfType>& perf_results,
 using framework::ConvSearchCache;
 
 struct ConvArgs {
-  cudnnHandle_t handle;
+  gpuDnnHandle_t handle;
   platform::TensorDescriptor idesc, odesc;
   platform::FilterDescriptor wdesc;
   platform::ConvolutionDescriptor cdesc;
   const framework::Tensor *x, *w, *o;
-  cudnnDataType_t cudnn_dtype;
+  gpuDnnDataType_t cudnn_dtype;
 
   // strides
   std::vector<int> s;
@@ -185,7 +196,7 @@ struct ConvArgs {
   ConvArgs(const framework::Tensor* x, const framework::Tensor* w,
            const framework::Tensor* o, const std::vector<int> s,
            const std::vector<int> p, const std::vector<int> d,
-           cudnnDataType_t dtype)
+           gpuDnnDataType_t dtype)
       : x(x), w(w), o(o), s(s), p(p), d(d), cudnn_dtype(dtype) {}
 };
 
@@ -193,9 +204,16 @@ template <typename perf_t>
 struct SearchAlgorithm {};
 
 template <>
+#ifdef PADDLE_WITH_HIP
+struct SearchAlgorithm<miopenConvFwdAlgorithm_t> {
+  using perf_t = miopenConvAlgoPerf_t;
+  using algo_t = miopenConvFwdAlgorithm_t;
+#else
+template <>
 struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
   using perf_t = cudnnConvolutionFwdAlgoPerf_t;
   using algo_t = cudnnConvolutionFwdAlgo_t;
+#endif
 
   template <typename T>
   static algo_t Find(const ConvArgs& args, bool exhaustive_search,
@@ -203,7 +221,7 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
                      const framework::ExecutionContext& ctx) {
     auto dtype = platform::CudnnDataType<T>::type;
     bool has_got_workspace_size = true;
-    bool exhaustive = (exhaustive_search) & (dtype != CUDNN_DATA_HALF);
+    bool exhaustive = (exhaustive_search) & (dtype != GPUDNN_DATA_HALF);
     size_t workspace_size_limit = FLAGS_conv_workspace_size_limit * 1024 * 1024;
     size_t workspace_size = 0;
     algo_t algo;
@@ -228,7 +246,42 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
 #endif
 
     if (!exhaustive && !deterministic) {
-#if CUDNN_VERSION >= 7001
+
+#ifdef PADDLE_WITH_HIP
+      size_t numBytes;
+      void *x;
+      void *y;
+      void *w;
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.idesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&x, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.wdesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&w, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.odesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&y, numBytes));
+
+      int perf_count;
+      int best_algo_idx = 0;
+      std::unique_ptr<perf_t[]> perf_results(new perf_t[kNUM_CUDNN_FWD_ALGS]);
+
+      platform::Workspace cudnn_workspace(workspace_size_limit);
+      PADDLE_ENFORCE_CUDA_SUCCESS(
+          platform::dynload::miopenFindConvolutionForwardAlgorithm(
+              args.handle, 
+              args.idesc.desc(), x, args.wdesc.desc(), w,
+              args.cdesc.desc(), args.odesc.desc(), y,
+              kNUM_CUDNN_FWD_ALGS, &perf_count,
+              perf_results.get(), cudnn_workspace.data,
+              workspace_size_limit, false));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(x));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(w));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(y));
+
+      algo = (perf_results.get())[best_algo_idx].fwd_algo;
+#elif CUDNN_VERSION >= 7001
       int perf_count;
       int best_algo_idx = 0;
       std::unique_ptr<perf_t[]> perf_results(new perf_t[kNUM_CUDNN_FWD_ALGS]);
@@ -269,7 +322,7 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
 #endif
       VLOG(3) << "choose algo " << algo;
     } else if (deterministic) {
-      algo = static_cast<cudnnConvolutionFwdAlgo_t>(1);
+      algo = static_cast<gpuDnnConvolutionFwdAlgo_t>(1);
     } else {
       auto& dev_ctx =
           ctx.template device_context<platform::CUDADeviceContext>();
@@ -293,6 +346,18 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
             std::array<perf_t, kNUM_CUDNN_FWD_ALGS> perf_stat;
 
             auto cudnn_find_func = [&](void* cudnn_workspace_ptr) {
+#ifdef PADDLE_WITH_HIP
+              PADDLE_ENFORCE_CUDA_SUCCESS(
+                  platform::dynload::miopenFindConvolutionForwardAlgorithm(
+                      args.handle, 
+                      args.idesc.desc(), args.x->data<T>(),
+                      args.wdesc.desc(), args.w->data<T>(), 
+                      args.cdesc.desc(),
+                      args.odesc.desc(), const_cast<T*>(args.o->data<T>()),
+                      kNUM_CUDNN_FWD_ALGS, &returned_algo_count,
+                      perf_stat.data(), cudnn_workspace_ptr,
+                      workspace_size_limit, false));
+#else
               PADDLE_ENFORCE_CUDA_SUCCESS(
                   platform::dynload::cudnnFindConvolutionForwardAlgorithmEx(
                       args.handle, args.idesc.desc(), args.x->data<T>(),
@@ -301,16 +366,25 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
                       kNUM_CUDNN_FWD_ALGS, &returned_algo_count,
                       perf_stat.data(), cudnn_workspace_ptr,
                       workspace_size_limit));
+#endif
             };
             workspace_handle.RunFuncSync(cudnn_find_func, workspace_size_limit);
 
             VLOG(3) << "FwdAlgo Perf result: (algo: stat, time, memory)";
             for (int i = 0; i < returned_algo_count; ++i) {
               const auto& stat = perf_stat[i];
+#ifdef PADDLE_WITH_HIP
+              VLOG(3) << stat.fwd_algo << ": " << stat.time << " " << stat.memory;
+#else
               VLOG(3) << stat.algo << ": " << stat.status << " " << stat.time
                       << " " << stat.memory;
+#endif
             }
+#ifdef PADDLE_WITH_HIP
+            return perf_stat[0].fwd_algo;
+#else
             return perf_stat[0].algo;
+#endif
           });
     }
     VLOG(3) << "choose algo " << algo;
@@ -319,25 +393,38 @@ struct SearchAlgorithm<cudnnConvolutionFwdAlgoPerf_t> {
 
   static size_t GetWorkspaceSize(const ConvArgs& args, algo_t algo) {
     size_t workspace_size = 0;
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        platform::dynload::miopenConvolutionForwardGetWorkSpaceSize(
+            args.handle, args.wdesc.desc(), args.idesc.desc(), 
+            args.cdesc.desc(), args.odesc.desc(), &workspace_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnGetConvolutionForwardWorkspaceSize(
             args.handle, args.idesc.desc(), args.wdesc.desc(),
             args.cdesc.desc(), args.odesc.desc(), algo, &workspace_size));
+#endif
     return workspace_size;
   }
 };
 
 template <>
+#ifdef PADDLE_WITH_HIP
+struct SearchAlgorithm<miopenConvBwdDataAlgorithm_t> {
+  using perf_t = miopenConvAlgoPerf_t;
+  using algo_t = miopenConvBwdDataAlgorithm_t;
+#else
 struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
   using perf_t = cudnnConvolutionBwdDataAlgoPerf_t;
   using algo_t = cudnnConvolutionBwdDataAlgo_t;
+#endif
 
   template <typename T>
   static algo_t Find(const ConvArgs& args, bool exhaustive_search,
                      bool deterministic,
                      const framework::ExecutionContext& ctx) {
     auto dtype = platform::CudnnDataType<T>::type;
-    bool exhaustive = (exhaustive_search) & (dtype != CUDNN_DATA_HALF);
+    bool exhaustive = (exhaustive_search) & (dtype != GPUDNN_DATA_HALF);
     size_t workspace_size_limit = FLAGS_conv_workspace_size_limit * 1024 * 1024;
     size_t workspace_size = 0;
     bool has_got_workspace_size = true;
@@ -362,7 +449,39 @@ struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
 #endif
 
     if (!exhaustive && !deterministic) {
-#if CUDNN_VERSION >= 7001
+#ifdef PADDLE_WITH_HIP
+      size_t numBytes;
+      void *dx;
+      void *dy;
+      void *w;
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.idesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dx, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.wdesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&w, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.odesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dy, numBytes));
+
+      int perf_count;
+      int best_algo_idx = 0;
+      std::unique_ptr<perf_t[]> perf_results(new perf_t[kNUM_CUDNN_BWD_DATA_ALGS]);
+
+      platform::Workspace cudnn_workspace(workspace_size_limit);
+      PADDLE_ENFORCE_CUDA_SUCCESS(
+          platform::dynload::miopenFindConvolutionBackwardDataAlgorithm(
+              args.handle, args.odesc.desc(), dy, args.wdesc.desc(), w,
+              args.cdesc.desc(), args.idesc.desc(), dx,
+              kNUM_CUDNN_BWD_DATA_ALGS, &perf_count, perf_results.get(),
+              cudnn_workspace.data, workspace_size_limit, false));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(dx));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(w));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipFree(dy));
+
+      algo = (perf_results.get())[best_algo_idx].bwd_data_algo;
+#elif CUDNN_VERSION >= 7001
       int perf_count;
       int best_algo_idx = 0;
       std::unique_ptr<perf_t[]> perf_results(
@@ -417,7 +536,11 @@ struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
               workspace_size_limit, &algo));
 #endif
     } else if (deterministic) {
+#ifdef PADDLE_WITH_HIP
+      return miopenConvolutionBwdDataAlgoDirect;
+#else
       return CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
+#endif
     } else {
       auto& dev_ctx =
           ctx.template device_context<platform::CUDADeviceContext>();
@@ -440,6 +563,18 @@ struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
             std::array<perf_t, kNUM_CUDNN_BWD_DATA_ALGS> perf_stat;
 
             auto cudnn_find_func = [&](void* cudnn_workspace_ptr) {
+#ifdef PADDLE_WITH_HIP
+              PADDLE_ENFORCE_CUDA_SUCCESS(
+                  platform::dynload::
+                      miopenFindConvolutionBackwardDataAlgorithm(
+                          args.handle, args.odesc.desc(), args.o->data<T>(),
+                          args.wdesc.desc(), args.w->data<T>(),
+                          args.cdesc.desc(), args.idesc.desc(),
+                          const_cast<T*>(args.x->data<T>()),
+                          kNUM_CUDNN_BWD_DATA_ALGS, &returned_algo_count,
+                          perf_stat.data(), cudnn_workspace_ptr,
+                          workspace_size_limit, false));
+#else
               PADDLE_ENFORCE_CUDA_SUCCESS(
                   platform::dynload::
                       cudnnFindConvolutionBackwardDataAlgorithmEx(
@@ -450,17 +585,25 @@ struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
                           kNUM_CUDNN_BWD_DATA_ALGS, &returned_algo_count,
                           perf_stat.data(), cudnn_workspace_ptr,
                           workspace_size_limit));
+#endif
             };
             workspace_handle.RunFuncSync(cudnn_find_func, workspace_size_limit);
 
             VLOG(3) << "BwdDataAlgo Perf result: (algo: stat, time, memory)";
             for (int i = 0; i < returned_algo_count; ++i) {
               const auto& stat = perf_stat[i];
+#ifdef PADDLE_WITH_HIP
+              VLOG(3) << stat.bwd_data_algo << ": " << stat.time << " " << stat.memory;
+#else
               VLOG(3) << stat.algo << ": " << stat.status << " " << stat.time
                       << " " << stat.memory;
+#endif
             }
-
+#ifdef PADDLE_WITH_HIP
+            return perf_stat[0].bwd_data_algo;
+#else
             return perf_stat[0].algo;
+#endif
           });
     }
     VLOG(3) << "choose algo " << algo;
@@ -469,18 +612,31 @@ struct SearchAlgorithm<cudnnConvolutionBwdDataAlgoPerf_t> {
 
   static size_t GetWorkspaceSize(const ConvArgs& args, algo_t algo) {
     size_t workspace_size = 0;
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        platform::dynload::miopenConvolutionBackwardDataGetWorkSpaceSize(
+            args.handle, args.odesc.desc(), args.wdesc.desc(),
+            args.cdesc.desc(), args.idesc.desc(), &workspace_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnGetConvolutionBackwardDataWorkspaceSize(
             args.handle, args.wdesc.desc(), args.odesc.desc(),
             args.cdesc.desc(), args.idesc.desc(), algo, &workspace_size));
+#endif
     return workspace_size;
   }
 };
 
 template <>
+#ifdef PADDLE_WITH_HIP
+struct SearchAlgorithm<miopenConvBwdWeightsAlgorithm_t> {
+  using perf_t = miopenConvAlgoPerf_t;
+  using algo_t = miopenConvBwdWeightsAlgorithm_t;
+#else
 struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
   using perf_t = cudnnConvolutionBwdFilterAlgoPerf_t;
   using algo_t = cudnnConvolutionBwdFilterAlgo_t;
+#endif
 
   template <typename T>
   static algo_t Find(const ConvArgs& args, bool exhaustive_search,
@@ -512,8 +668,35 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
 
     algo_t algo;
     if (!exhaustive_search && !deterministic) {
-#if CUDNN_VERSION >= 7001
-      using perf_t = cudnnConvolutionBwdFilterAlgoPerf_t;
+#ifdef PADDLE_WITH_HIP
+      size_t numBytes;
+      void *x;
+      void *dy;
+      void *dw;
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.idesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&x, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.wdesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dw, numBytes));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.odesc.desc(), &numBytes));
+      PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dy, numBytes));
+
+      int perf_count;
+      int best_algo_idx = 0;
+      std::unique_ptr<perf_t[]> perf_results(new perf_t[kNUM_CUDNN_BWD_FILTER_ALGS]);
+
+      platform::Workspace cudnn_workspace(workspace_size_limit);
+      PADDLE_ENFORCE_CUDA_SUCCESS(
+          platform::dynload::miopenFindConvolutionBackwardWeightsAlgorithm(
+              args.handle, args.odesc.desc(), dy, args.idesc.desc(), x,
+              args.cdesc.desc(), args.wdesc.desc(), dw,
+              kNUM_CUDNN_BWD_FILTER_ALGS, &perf_count, perf_results.get(),
+              cudnn_workspace.data, workspace_size_limit, false));
+    
+      algo = (perf_results.get())[best_algo_idx].bwd_weights_algo;
+#elif CUDNN_VERSION >= 7001
       int perf_count;
       int best_algo_idx = 0;
       std::unique_ptr<perf_t[]> perf_results(
@@ -554,7 +737,11 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
               workspace_size_limit, &algo));
 #endif
     } else if (deterministic) {
+#ifdef PADDLE_WITH_HIP
+      return miopenConvolutionBwdWeightsAlgoDirect;
+#else
       return CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
+#endif
     } else {
       auto& dev_ctx =
           ctx.template device_context<platform::CUDADeviceContext>();
@@ -568,13 +755,25 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
       VLOG(10) << "cudnnConvolutionFwdAlgoPerf_t:"
                << ", x_dims:" << x_dims << ", w_dims:" << w_dims << ", args.s"
                << args.s << ", args.p" << args.p << ", args.d" << args.d;
-      if (dtype != CUDNN_DATA_HALF) {
+      if (dtype != GPUDNN_DATA_HALF) {
         algo = algo_cache.GetAlgorithm(
             x_dims, w_dims, args.s, args.p, args.d, 0,
             static_cast<int64_t>(args.cudnn_dtype), [&]() {
               int returned_algo_count;
               std::array<perf_t, kNUM_CUDNN_BWD_FILTER_ALGS> perf_stat;
               auto cudnn_find_func = [&](void* cudnn_workspace_ptr) {
+#ifdef PADDLE_WITH_HIP
+                PADDLE_ENFORCE_CUDA_SUCCESS(
+                    platform::dynload::
+                        miopenFindConvolutionBackwardWeightsAlgorithm(
+                            args.handle, args.odesc.desc(), args.o->data<T>(),
+                            args.idesc.desc(), args.x->data<T>(),
+                            args.cdesc.desc(), args.wdesc.desc(),
+                            const_cast<T*>(args.w->data<T>()),
+                            kNUM_CUDNN_BWD_FILTER_ALGS, &returned_algo_count,
+                            perf_stat.data(), cudnn_workspace_ptr,
+                            workspace_size_limit, false));
+#else
                 PADDLE_ENFORCE_CUDA_SUCCESS(
                     platform::dynload::
                         cudnnFindConvolutionBackwardFilterAlgorithmEx(
@@ -585,6 +784,7 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
                             kNUM_CUDNN_BWD_FILTER_ALGS, &returned_algo_count,
                             perf_stat.data(), cudnn_workspace_ptr,
                             workspace_size_limit));
+#endif
               };
               workspace_handle.RunFuncSync(cudnn_find_func,
                                            workspace_size_limit);
@@ -593,10 +793,18 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
                   << "BwdFilterAlgo Perf result: (algo: stat, time, memory)";
               for (int i = 0; i < returned_algo_count; ++i) {
                 const auto& stat = perf_stat[i];
+#ifdef PADDLE_WITH_HIP
+                VLOG(3) << stat.bwd_weights_algo << ": " << stat.time << " " << stat.memory;
+#else
                 VLOG(3) << stat.algo << ": " << stat.status << " " << stat.time
                         << " " << stat.memory;
+#endif
               }
+#ifdef PADDLE_WITH_HIP
+              return perf_stat[0].bwd_weights_algo;
+#else
               return perf_stat[0].algo;
+#endif
             });
       } else {
         auto max_algos = MaxBwdFilterAlgos(args.handle);
@@ -606,6 +814,35 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
               algo_t chosen_algo;
               std::vector<perf_t> perf_results(max_algos);
               int actual_algos = 0;
+#ifdef PADDLE_WITH_HIP
+              size_t numBytes;
+              void *x;
+              void *dy;
+              void *dw;
+
+              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.idesc.desc(), &numBytes));
+              PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&x, numBytes));
+
+              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.wdesc.desc(), &numBytes));
+              PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dw, numBytes));
+
+              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetTensorNumBytes(args.odesc.desc(), &numBytes));
+              PADDLE_ENFORCE_CUDA_SUCCESS(hipMalloc((void **)&dy, numBytes));
+
+              int perf_count;
+              int best_algo_idx = 0;
+              platform::Workspace cudnn_workspace(workspace_size_limit);
+              PADDLE_ENFORCE_CUDA_SUCCESS(
+                  platform::dynload::
+                      miopenFindConvolutionBackwardWeightsAlgorithm(
+                          args.handle, args.odesc.desc(), dy,
+                          args.idesc.desc(), x,
+                          args.cdesc.desc(), args.wdesc.desc(), dw,
+                          kNUM_CUDNN_BWD_FILTER_ALGS, &actual_algos,
+                          perf_results.data(), 
+                          cudnn_workspace.data, workspace_size_limit,
+                          false));
+#else
               PADDLE_ENFORCE_CUDA_SUCCESS(
                   platform::dynload::
                       cudnnFindConvolutionBackwardFilterAlgorithm(
@@ -613,9 +850,14 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
                           args.cdesc.desc(), args.wdesc.desc(),
                           perf_results.size(), &actual_algos,
                           perf_results.data()));
+#endif
               perf_results.resize(actual_algos);
+#ifdef PADDLE_WITH_HIP
+              chosen_algo = perf_results[0].bwd_weights_algo;
+#else
               ChooseAlgo<perf_t, algo_t>(perf_results, workspace_size_limit,
                                          &chosen_algo);
+#endif
               return chosen_algo;
             });
       }
@@ -626,10 +868,17 @@ struct SearchAlgorithm<cudnnConvolutionBwdFilterAlgoPerf_t> {
 
   static size_t GetWorkspaceSize(const ConvArgs& args, algo_t algo) {
     size_t workspace_size = 0;
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        platform::dynload::miopenConvolutionBackwardWeightsGetWorkSpaceSize(
+            args.handle, args.odesc.desc(), args.idesc.desc(), 
+            args.cdesc.desc(), args.wdesc.desc(), &workspace_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnGetConvolutionBackwardFilterWorkspaceSize(
             args.handle, args.idesc.desc(), args.odesc.desc(),
             args.cdesc.desc(), args.wdesc.desc(), algo, &workspace_size));
+#endif
     return workspace_size;
   }
 };

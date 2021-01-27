@@ -14,9 +14,18 @@ limitations under the License. */
 
 #include "paddle/fluid/operators/arg_min_max_op_base.cu.h"
 
+#ifdef PADDLE_WITH_HIP
+REGISTER_OP_CUDA_KERNEL(
+    arg_max, paddle::operators::ArgMinMaxOpCUDAKernel<float, hipcub::ArgMax>,
+    paddle::operators::ArgMinMaxOpCUDAKernel<double, hipcub::ArgMax>,
+    paddle::operators::ArgMinMaxOpCUDAKernel<int64_t, hipcub::ArgMax>,
+    paddle::operators::ArgMinMaxOpCUDAKernel<int32_t, hipcub::ArgMax>,
+    paddle::operators::ArgMinMaxOpCUDAKernel<int8_t, hipcub::ArgMax>);
+#else
 REGISTER_OP_CUDA_KERNEL(
     arg_max, paddle::operators::ArgMinMaxOpCUDAKernel<float, cub::ArgMax>,
     paddle::operators::ArgMinMaxOpCUDAKernel<double, cub::ArgMax>,
     paddle::operators::ArgMinMaxOpCUDAKernel<int64_t, cub::ArgMax>,
     paddle::operators::ArgMinMaxOpCUDAKernel<int32_t, cub::ArgMax>,
     paddle::operators::ArgMinMaxOpCUDAKernel<int8_t, cub::ArgMax>);
+#endif

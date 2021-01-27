@@ -223,7 +223,7 @@ T TensorGetElement(const framework::Tensor &self, size_t offset) {
     paddle::memory::Copy(platform::CPUPlace(), &b, p, a + offset, sizeof(T));
 #endif
   } else if (platform::is_gpu_place(self.place())) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     const T *a = self.data<T>();
     auto p = BOOST_GET_CONST(platform::CUDAPlace, self.place());
     paddle::memory::Copy(platform::CPUPlace(), &b, p, a + offset, sizeof(T),
@@ -247,7 +247,7 @@ void TensorSetElement(framework::Tensor *self, size_t offset, T elem) {
     paddle::memory::Copy(p, a + offset, platform::CPUPlace(), &elem, sizeof(T));
 #endif
   } else if (platform::is_gpu_place(self->place())) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     auto p = BOOST_GET_CONST(platform::CUDAPlace, self->place());
     T *a = self->mutable_data<T>(p);
     paddle::memory::Copy(p, a + offset, platform::CPUPlace(), &elem, sizeof(T),
@@ -288,12 +288,17 @@ void SetTensorFromPyArrayT(
         "Please recompile or reinstall Paddle with XPU support."));
 #endif
   } else {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     if (paddle::platform::is_gpu_place(place)) {
       // TODO(zhiqiu): set SetDeviceId before calling cuda APIs.
       auto dst = self->mutable_data<T>(place);
+#ifdef PADDLE_WITH_HIP
+      paddle::platform::GpuMemcpySync(dst, array.data(), array.nbytes(),
+                                      hipMemcpyHostToDevice);
+#else
       paddle::platform::GpuMemcpySync(dst, array.data(), array.nbytes(),
                                       cudaMemcpyHostToDevice);
+#endif
 
     } else if (paddle::platform::is_cuda_pinned_place(place)) {
       auto dst = self->mutable_data<T>(place);
@@ -462,7 +467,7 @@ inline framework::Tensor *_getTensor(const framework::Tensor &self,
                          self.type());
 #endif
   } else {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     if (platform::is_cuda_pinned_place(place)) {
       output->mutable_data(BOOST_GET_CONST(platform::CUDAPinnedPlace, place),
                            self.type());
@@ -695,7 +700,7 @@ inline py::array TensorToPyArray(const framework::Tensor &tensor,
         "Please recompile or reinstall Paddle with XPU support."));
 #endif
   } else if (is_gpu_tensor) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     py::array py_arr(py::dtype(py_dtype_str.c_str()), py_dims, py_strides);
     PADDLE_ENFORCE_EQ(py_arr.writeable(), true,
                       platform::errors::InvalidArgument(

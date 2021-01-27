@@ -46,14 +46,16 @@ class TestElementwiseAddOp(OpTest):
 
     def test_check_grad_normal(self):
         # TODO(wangzhongpu): support mkldnn op in dygraph mode
-        if self.dtype == np.float16:
+        if self.dtype == np.float16 or (hasattr(self, "no_need_check_grad") and
+                                        self.no_need_check_grad == True):
             return
         self.check_grad(
             ['X', 'Y'], 'Out', check_dygraph=(self.use_mkldnn == False))
 
     def test_check_grad_ingore_x(self):
         # TODO(wangzhongpu): support mkldnn op in dygraph mode
-        if self.dtype == np.float16:
+        if self.dtype == np.float16 or (hasattr(self, "no_need_check_grad") and
+                                        self.no_need_check_grad == True):
             return
         self.check_grad(
             ['Y'],
@@ -63,7 +65,8 @@ class TestElementwiseAddOp(OpTest):
 
     def test_check_grad_ingore_y(self):
         # TODO(wangzhongpu): support mkldnn op in dygraph mode
-        if self.dtype == np.float16:
+        if self.dtype == np.float16 or (hasattr(self, "no_need_check_grad") and
+                                        self.no_need_check_grad == True):
             return
         self.check_grad(
             ['X'],

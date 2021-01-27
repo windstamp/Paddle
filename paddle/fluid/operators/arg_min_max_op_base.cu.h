@@ -14,9 +14,15 @@ limitations under the License. */
 
 #pragma once
 
-#ifdef __NVCC__
+#if defined(__NVCC__) || defined(__HIPCC__)
 
-#include <cub/cub.cuh>
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
 #include <limits>
 #include <string>
 #include <typeinfo>
@@ -28,6 +34,10 @@ limitations under the License. */
 
 namespace paddle {
 namespace operators {
+
+#ifdef __HIPCC__
+namespace cub = hipcub;
+#endif
 
 namespace {  // NOLINT
 template <typename K, typename V>

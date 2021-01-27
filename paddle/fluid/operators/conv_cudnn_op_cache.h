@@ -18,7 +18,9 @@ limitations under the License. */
 #include <unordered_map>
 #include <vector>
 #include "paddle/fluid/framework/operator.h"
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cudnn_helper.h"
+#endif
 
 DECLARE_uint64(conv_workspace_size_limit);
 DECLARE_bool(cudnn_exhaustive_search);

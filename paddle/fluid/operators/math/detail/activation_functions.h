@@ -57,17 +57,17 @@ inline ActivationType GetActivationType(const std::string &type) {
 namespace forward {
 
 template <typename T>
-DEVICE T Identity(const T a) {
+HOSTDEVICE T Identity(const T a) {
   return a;
 }
 
 template <typename T>
-DEVICE T Relu(const T a) {
+HOSTDEVICE T Relu(const T a) {
   return a > static_cast<T>(0.0) ? a : static_cast<T>(0.0);
 }
 
 template <typename T>
-DEVICE T Sigmoid(const T a) {
+HOSTDEVICE T Sigmoid(const T a) {
   const T min = SIGMOID_THRESHOLD_MIN;
   const T max = SIGMOID_THRESHOLD_MAX;
   T tmp = (a < min) ? min : ((a > max) ? max : a);
@@ -78,12 +78,12 @@ DEVICE T Sigmoid(const T a) {
  * Don't limit input in a threshold range.
  */
 template <typename T>
-DEVICE T SigmoidV2(const T a) {
+HOSTDEVICE T SigmoidV2(const T a) {
   return static_cast<T>(1.0) / (static_cast<T>(1.0) + exp(-a));
 }
 
 template <typename T>
-DEVICE T Tanh(const T a) {
+HOSTDEVICE T Tanh(const T a) {
   T tmp = -2.0 * a;
   tmp = (tmp > EXP_MAX_INPUT) ? EXP_MAX_INPUT : tmp;
   return (2.0 / (1.0 + exp(tmp))) - 1.0;
@@ -93,7 +93,7 @@ DEVICE T Tanh(const T a) {
  * Don't limit input in a threshold range.
  */
 template <typename T>
-DEVICE T TanhV2(const T a) {
+HOSTDEVICE T TanhV2(const T a) {
   T tmp = -2.0 * a;
   return (2.0 / (1.0 + exp(tmp))) - 1.0;
 }
@@ -103,22 +103,22 @@ DEVICE T TanhV2(const T a) {
 namespace backward {
 
 template <typename T>
-DEVICE T Identity(const T a, const T b) {
+HOSTDEVICE T Identity(const T a, const T b) {
   return a;
 }
 
 template <typename T>
-DEVICE T Relu(const T a, const T b) {
+HOSTDEVICE T Relu(const T a, const T b) {
   return a * (b > 0.0 ? 1.0 : 0.0);
 }
 
 template <typename T>
-DEVICE T Sigmoid(const T a, const T b) {
+HOSTDEVICE T Sigmoid(const T a, const T b) {
   return a * b * (1.0 - b);
 }
 
 template <typename T>
-DEVICE T Tanh(const T a, const T b) {
+HOSTDEVICE T Tanh(const T a, const T b) {
   return a * (1.0 - b * b);
 }
 
@@ -130,46 +130,135 @@ struct Active {
   typedef T (*ActGrad)(T, T);
 };
 
-static DEVICE Active<float>::Act kActFloat[] = {
+#ifdef PADDLE_WITH_CUDA
+
+static HOSTDEVICE Active<float>::Act kActFloat[] = {
     &forward::Sigmoid<float>, &forward::SigmoidV2<float>,
     &forward::Relu<float>,    &forward::Tanh<float>,
     &forward::TanhV2<float>,  &forward::Identity<float>};
 
-static DEVICE Active<float>::ActGrad kActGradFloat[] = {
+static HOSTDEVICE Active<float>::ActGrad kActGradFloat[] = {
     &backward::Sigmoid<float>, &backward::Sigmoid<float>,
     &backward::Relu<float>,    &backward::Tanh<float>,
     &backward::Tanh<float>,    &backward::Identity<float>};
 
-static DEVICE Active<double>::Act kActDouble[] = {
+static HOSTDEVICE Active<double>::Act kActDouble[] = {
     &forward::Sigmoid<double>, &forward::SigmoidV2<double>,
     &forward::Relu<double>,    &forward::Tanh<double>,
     &forward::TanhV2<double>,  &forward::Identity<double>};
 
-static DEVICE Active<double>::ActGrad kActGradDouble[] = {
+static HOSTDEVICE Active<double>::ActGrad kActGradDouble[] = {
     &backward::Sigmoid<double>, &backward::Sigmoid<double>,
     &backward::Relu<double>,    &backward::Tanh<double>,
     &backward::Tanh<double>,    &backward::Identity<double>};
 
 namespace forward {
-inline DEVICE float activation(float a, int index) {
+inline HOSTDEVICE float activation(float a, int index) {
   return kActFloat[index](a);
 }
 
-inline DEVICE double activation(double a, int index) {
+inline HOSTDEVICE double activation(double a, int index) {
   return kActDouble[index](a);
 }
 
 }  // namespace forward
 
 namespace backward {
-inline DEVICE float activation(float a, float b, int index) {
+inline HOSTDEVICE float activation(float a, float b, int index) {
   return kActGradFloat[index](a, b);
 }
 
-inline DEVICE double activation(double a, double b, int index) {
+inline HOSTDEVICE double activation(double a, double b, int index) {
   return kActGradDouble[index](a, b);
 }
 }  // namespace backward
+
+#else
+namespace forward {
+inline HOSTDEVICE float activation(float a, int index) {
+  switch(index)
+  {
+    case 0:
+      return Sigmoid<float>(a);
+    case 1:
+      return SigmoidV2<float>(a);
+    case 2:
+      return Relu<float>(a);
+    case 3:
+      return Tanh<float>(a);
+    case 4:
+      return TanhV2<float>(a);
+    case 5:
+      return Identity<float>(a);
+    default:
+      return 0.0f;
+  }
+}
+
+inline HOSTDEVICE double activation(double a, int index) {
+  switch(index)
+  {
+    case 0:
+      return Sigmoid<double>(a);
+    case 1:
+      return SigmoidV2<double>(a);
+    case 2:
+      return Relu<double>(a);
+    case 3:
+      return Tanh<double>(a);
+    case 4:
+      return TanhV2<double>(a);
+    case 5:
+      return Identity<double>(a);
+    default:
+      return 0.0f;
+  }
+}
+} // namespace forward
+
+namespace backward {
+inline HOSTDEVICE float activation(float a, float b, int index) {
+  switch(index)
+  {
+    case 0:
+      return Sigmoid<float>(a, b);
+    case 1:
+      return Sigmoid<float>(a, b);
+    case 2:
+      return Relu<float>(a, b);
+    case 3:
+      return Tanh<float>(a, b);
+    case 4:
+      return Tanh<float>(a, b);
+    case 5:
+      return Identity<float>(a, b);
+    default:
+      return 0.0f;
+  }
+}
+
+inline HOSTDEVICE double activation(double a, double b, int index) {
+  switch(index)
+  {
+    case 0:
+      return Sigmoid<double>(a, b);
+    case 1:
+      return Sigmoid<double>(a, b);
+    case 2:
+      return Relu<double>(a, b);
+    case 3:
+      return Tanh<double>(a, b);
+    case 4:
+      return Tanh<double>(a, b);
+    case 5:
+      return Identity<double>(a, b);
+    default:
+      return 0.0f;
+  }
+}
+} // namespace backward
+
+#endif
 
 #ifdef __AVX__
 namespace forward {

@@ -915,7 +915,7 @@ void BindImperative(py::module *m_ptr) {
            [](imperative::VarBase &self,
               const imperative::ParallelStrategy &strategy) {
              if (strategy.nranks_ > 1) {
-#ifdef PADDLE_WITH_NCCL
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #if NCCL_VERSION_CODE >= 2212
                imperative::AllReduce(self.Var(), self.MutableVar(), strategy);
 #else
@@ -965,7 +965,7 @@ void BindImperative(py::module *m_ptr) {
               )DOC")
       .def("pin_memory",
            [](const std::shared_ptr<imperative::VarBase> &self) {
-#ifndef PADDLE_WITH_CUDA
+#if !defined(PADDLE_WITH_CUDA) && !defined(PADDLE_WITH_HIP)
              PADDLE_THROW(platform::errors::PermissionDenied(
                  "Cannot copy this Tensor to pinned memory in CPU version "
                  "Paddle, "
@@ -999,7 +999,7 @@ void BindImperative(py::module *m_ptr) {
       .def("cuda",
            [](const std::shared_ptr<imperative::VarBase> &self, int device_id,
               bool blocking) {
-#ifndef PADDLE_WITH_CUDA
+#if !defined(PADDLE_WITH_CUDA) && !defined(PADDLE_WITH_HIP)
              PADDLE_THROW(platform::errors::PermissionDenied(
                  "Cannot copy this Tensor to GPU in CPU version Paddle, "
                  "Please recompile or reinstall Paddle with CUDA support."));
@@ -1377,7 +1377,7 @@ void BindImperative(py::module *m_ptr) {
       },
       py::call_guard<py::gil_scoped_release>());
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
   py::class_<imperative::ParallelContext,
              std::shared_ptr<imperative::ParallelContext>>(m,
                                                            "ParallelContext");

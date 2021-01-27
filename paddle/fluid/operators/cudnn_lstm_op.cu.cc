@@ -54,7 +54,7 @@ int size_sum(const std::vector<const Tensor *> &weight_list) {
 }
 
 template <typename T>
-void weight_to_tensor(const platform::Place &place, cudaStream_t stream,
+void weight_to_tensor(const platform::Place &place, gpuStream_t stream,
                       const std::vector<const Tensor *> &weight_list,
                       Tensor *weight) {
   auto weight_data = weight->data<T>();
@@ -72,7 +72,7 @@ void weight_to_tensor(const platform::Place &place, cudaStream_t stream,
 }
 
 template <typename T>
-void weight_to_tensor_list(const platform::Place &place, cudaStream_t stream,
+void weight_to_tensor_list(const platform::Place &place, gpuStream_t stream,
                            std::vector<Tensor *> *weight_grad,
                            const std::vector<const Tensor *> &weight_input,
                            const Tensor *weight) {
@@ -92,7 +92,7 @@ void weight_to_tensor_list(const platform::Place &place, cudaStream_t stream,
 }
 
 template <typename T>
-void LSTMInferece(const bool &has_seq_length, const cudnnHandle_t &handle,
+void LSTMInferece(const bool &has_seq_length, const gpuDnnHandle_t &handle,
                   const int &seq_length, ScopedRNNBase *rnn, const T *x_data,
                   const T *init_h_data, const T *init_c_data, const T *w_data,
                   T *out_data, T *last_h_data, T *last_c_data,
@@ -101,14 +101,23 @@ void LSTMInferece(const bool &has_seq_length, const cudnnHandle_t &handle,
   if (!has_seq_length) {
     // for inference
     // This interface is used when the input/output is unpadded.
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenRNNForwardInference(
+        handle, rnn->rnn_desc(), seq_length, rnn->x_descs(), x_data,
+        rnn->init_h_desc(), init_h_data, rnn->init_c_desc(), init_c_data,
+        rnn->weight_desc(), w_data, rnn->y_descs(), out_data,
+        rnn->last_h_desc(), last_h_data, rnn->last_c_desc(), last_c_data,
+        workspace_data->data<uint8_t>(), workspace_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnRNNForwardInference(
         handle, rnn->rnn_desc(), seq_length, rnn->x_descs(), x_data,
         rnn->init_h_desc(), init_h_data, rnn->init_c_desc(), init_c_data,
         rnn->weight_desc(), w_data, rnn->y_descs(), out_data,
         rnn->last_h_desc(), last_h_data, rnn->last_c_desc(), last_c_data,
         workspace_data->data<uint8_t>(), workspace_size));
+#endif
   } else {
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
     // for inference
     // This interface is used when the input/output is padded.
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnRNNForwardInferenceEx(
@@ -258,6 +267,15 @@ class CudnnLSTMGPUKernel : public framework::OpKernel<T> {
       if (!has_seq_length) {
         // for train
         // This interface is used when the input/output is unpadded.
+#ifdef PADDLE_WITH_HIP
+        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenRNNForwardTraining(
+            handle, rnn.rnn_desc(), seq_length, rnn.x_descs(), x_data,
+            rnn.init_h_desc(), init_h_data, rnn.init_c_desc(), init_c_data,
+            rnn.weight_desc(), w_data, rnn.y_descs(), out_data,
+            rnn.last_h_desc(), last_h_data, rnn.last_c_desc(), last_c_data,
+            workspace_data_.data<uint8_t>(), workspace_size, reserve_data,
+            reserve_size));
+#else
         PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnRNNForwardTraining(
             handle, rnn.rnn_desc(), seq_length, rnn.x_descs(), x_data,
             rnn.init_h_desc(), init_h_data, rnn.init_c_desc(), init_c_data,
@@ -265,8 +283,9 @@ class CudnnLSTMGPUKernel : public framework::OpKernel<T> {
             rnn.last_h_desc(), last_h_data, rnn.last_c_desc(), last_c_data,
             workspace_data_.data<uint8_t>(), workspace_size, reserve_data,
             reserve_size));
+#endif
       } else {
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
         // for train
         // This interface is used when the input/output is padded.
         PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -404,6 +423,23 @@ class CudnnLSTMGPUGradKernel : public framework::OpKernel<T> {
 
     if (!has_seq_length) {
       // This interface is used when the input/output is unpadded.
+#ifdef PADDLE_WITH_HIP
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenRNNBackwardData(
+          handle, rnn.rnn_desc(), seq_length, rnn.y_descs(), out_data,
+          rnn.y_descs(), out_grad_data, rnn.last_h_desc(), last_h_grad_data,
+          rnn.last_c_desc(), last_c_grad_data, rnn.weight_desc(), weight_data,
+          rnn.init_h_desc(), init_h_data, rnn.init_c_desc(), init_c_data,
+          rnn.x_descs(), in_grad_data, rnn.init_h_desc(), init_h_grad_data,
+          rnn.init_c_desc(), init_c_grad_data, workspace_data_.data<uint8_t>(),
+          workspace_size, const_cast<uint8_t *>(reserve_data), reserve_size));
+
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenRNNBackwardWeights(
+          handle, rnn.rnn_desc(), seq_length, rnn.x_descs(), input->data<T>(),
+          rnn.init_h_desc(), init_h->data<T>(), rnn.y_descs(), out->data<T>(),
+          rnn.weight_desc(), weight_grad_data,
+          workspace_data_.data<uint8_t>(), workspace_size, 
+          const_cast<uint8_t *>(reserve_data), reserve_size));
+#else
       PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnRNNBackwardData(
           handle, rnn.rnn_desc(), seq_length, rnn.y_descs(), out_data,
           rnn.y_descs(), out_grad_data, rnn.last_h_desc(), last_h_grad_data,
@@ -418,8 +454,9 @@ class CudnnLSTMGPUGradKernel : public framework::OpKernel<T> {
           rnn.init_h_desc(), init_h->data<T>(), rnn.y_descs(), out->data<T>(),
           workspace_data_.data<uint8_t>(), workspace_size, rnn.weight_desc(),
           weight_grad_data, const_cast<uint8_t *>(reserve_data), reserve_size));
+#endif
     } else {
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
       // for train
       // This interface is used when the input/output is padded.
       PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnRNNBackwardDataEx(
@@ -452,7 +489,13 @@ class CudnnLSTMGPUGradKernel : public framework::OpKernel<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-REGISTER_OP_CUDA_KERNEL(cudnn_lstm, ops::CudnnLSTMGPUKernel<float>,
-                        ops::CudnnLSTMGPUKernel<double>);
-REGISTER_OP_CUDA_KERNEL(cudnn_lstm_grad, ops::CudnnLSTMGPUGradKernel<float>,
-                        ops::CudnnLSTMGPUGradKernel<double>);
+REGISTER_OP_CUDA_KERNEL(cudnn_lstm, 
+#ifndef PADDLE_WITH_HIP
+                        ops::CudnnLSTMGPUKernel<double>,
+#endif
+                        ops::CudnnLSTMGPUKernel<float>);
+REGISTER_OP_CUDA_KERNEL(cudnn_lstm_grad, 
+#ifndef PADDLE_WITH_HIP
+                        ops::CudnnLSTMGPUGradKernel<double>,
+#endif
+                        ops::CudnnLSTMGPUGradKernel<float>);

@@ -105,8 +105,12 @@ class SequenceSoftmaxGradCUDNNKernel : public framework::OpKernel<T> {
 
 namespace ops = paddle::operators;
 REGISTER_OP_KERNEL(sequence_softmax, CUDNN, ::paddle::platform::CUDAPlace,
-                   ops::SequenceSoftmaxCUDNNKernel<float>,
-                   ops::SequenceSoftmaxCUDNNKernel<double>);
+#ifndef PADDLE_WITH_HIP
+                   ops::SequenceSoftmaxCUDNNKernel<double>,
+#endif
+                   ops::SequenceSoftmaxCUDNNKernel<float>);
 REGISTER_OP_KERNEL(sequence_softmax_grad, CUDNN, ::paddle::platform::CUDAPlace,
-                   ops::SequenceSoftmaxGradCUDNNKernel<float>,
-                   ops::SequenceSoftmaxGradCUDNNKernel<double>);
+#ifndef PADDLE_WITH_HIP
+                   ops::SequenceSoftmaxGradCUDNNKernel<double>,
+#endif
+                   ops::SequenceSoftmaxGradCUDNNKernel<float>);

@@ -22,9 +22,9 @@ limitations under the License. */
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/fleet/fleet_wrapper.h"
 #include "paddle/fluid/framework/trainer.h"
-#if (defined PADDLE_WITH_CUDA || defined PADDLE_WITH_XPU) && \
+#if (defined PADDLE_WITH_CUDA || defined PADDLE_WITH_HIP || defined PADDLE_WITH_XPU) && \
     (defined PADDLE_WITH_PSLIB)
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cuda_device_guard.h"
 #endif
 namespace paddle {
@@ -49,13 +49,25 @@ void HeterXpuTrainer::Initialize(const TrainerDesc& trainer_desc,
 #ifdef PADDLE_WITH_CUDA
     platform::CUDAPlace place = platform::CUDAPlace(num);
     platform::CUDADeviceGuard guard(place.device);
-    cudaStream_t stream;
+    gpuStream_t stream;
     PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamCreate(&stream));
     copy_streams_.push_back(stream);
     places_.push_back(place);
-    cudaEvent_t event;
+    gpuEvent_t event;
     PADDLE_ENFORCE_CUDA_SUCCESS(
         cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+    events_.push_back(event);
+#endif
+#ifdef PADDLE_WITH_HIP
+    platform::CUDAPlace place = platform::CUDAPlace(num);
+    platform::CUDADeviceGuard guard(place.device);
+    hipStream_t stream;
+    PADDLE_ENFORCE_CUDA_SUCCESS(hipStreamCreate(&stream));
+    copy_streams_.push_back(stream);
+    places_.push_back(place);
+    hipEvent_t event;
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        hipEventCreateWithFlags(&event, hipEventDisableTiming));
     events_.push_back(event);
 #endif
 #ifdef PADDLE_WITH_XPU
@@ -102,7 +114,7 @@ void HeterXpuTrainer::Initialize(const TrainerDesc& trainer_desc,
   //   int num = trainer_desc.worker_places(i);
   //   platform::CUDAPlace place = platform::CUDAPlace(num);
   //   platform::CUDADeviceGuard guard(place.device);
-  //   cudaStream_t stream;
+  //   gpuStream_t stream;
   //   PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamCreate(&stream));
   //   copy_streams_.push_back(stream);
   //   places_.push_back(place);
@@ -113,7 +125,7 @@ void HeterXpuTrainer::Initialize(const TrainerDesc& trainer_desc,
 void HeterXpuTrainer::CreateThreadParam(const ProgramDesc& program, int num) {
   auto place = places_[num];
   Scope* scope = place_scopes_[num];
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
   auto stream = copy_streams_[num];
   auto event = events_[num];
   auto dev_id = BOOST_GET_CONST(platform::CUDAPlace, place).device;
@@ -147,7 +159,7 @@ void HeterXpuTrainer::CreateThreadParam(const ProgramDesc& program, int num) {
       HeterMemCpy<cpp_type>(thread_tensor, root_tensor, place); \
     }                                                           \
   } while (0)
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
       _ForEachDataType_(HeterMemcpyFunc);
 #endif
 #ifdef PADDLE_WITH_XPU
@@ -159,14 +171,18 @@ void HeterXpuTrainer::CreateThreadParam(const ProgramDesc& program, int num) {
   PADDLE_ENFORCE_CUDA_SUCCESS(cudaEventRecord(event, stream));
   cudaEventSynchronize(event);
 #endif
+#ifdef PADDLE_WITH_HIP
+  PADDLE_ENFORCE_CUDA_SUCCESS(hipEventRecord(event, stream));
+  hipEventSynchronize(event);
+#endif
 }
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 template <typename T>
 void HeterXpuTrainer::HeterMemCpy(LoDTensor* thread_tensor,
                                   LoDTensor* root_tensor,
                                   const paddle::platform::Place& thread_place,
-                                  cudaStream_t stream) {
+                                  gpuStream_t stream) {
   T* thread_ptr =
       thread_tensor->mutable_data<T>(root_tensor->dims(), thread_place);
   T* root_ptr = root_tensor->data<T>();
@@ -231,7 +247,7 @@ void HeterXpuTrainer::InitOtherEnv(const ProgramDesc& main_program) {
     CreateThreadParam(main_program, i);
     pull_dense_worker_->AddThreadScope(scope);
     pull_dense_worker_->AddPlace(places_[i]);
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     pull_dense_worker_->AddStream(copy_streams_[i]);
 #endif
   }
@@ -239,6 +255,11 @@ void HeterXpuTrainer::InitOtherEnv(const ProgramDesc& main_program) {
 #ifdef PADDLE_WITH_CUDA
   for (auto& stream : copy_streams_) {
     cudaStreamSynchronize(stream);
+  }
+#endif
+#ifdef PADDLE_WITH_HIP
+  for (auto& stream : copy_streams_) {
+    hipStreamSynchronize(stream);
   }
 #endif
   op_names_.clear();
@@ -288,6 +309,12 @@ void HeterXpuTrainer::InitOtherEnv(const ProgramDesc& main_program) {
       platform::CUDADeviceGuard guard(dev_id);
       PADDLE_ENFORCE_CUDA_SUCCESS(
           cudaEventCreateWithFlags(&context->event_, cudaEventDisableTiming));
+#endif
+#ifdef PADDLE_WITH_HIP
+      auto dev_id = BOOST_GET_CONST(platform::CUDAPlace, place).device;
+      platform::CUDADeviceGuard guard(dev_id);
+      PADDLE_ENFORCE_CUDA_SUCCESS(
+          hipEventCreateWithFlags(&context->event_, hipEventDisableTiming));
 #endif
       object_pool_.Push(context);
     }
@@ -340,6 +367,13 @@ int HeterXpuTrainer::EndPass(const HeterRequest* request,
         cudaMemset(thread_tensor->data<void>(), 0,
                    thread_tensor->numel() * SizeOfType(thread_tensor->type()));
 #endif
+#ifdef PADDLE_WITH_HIP
+        auto dev_id =
+            BOOST_GET_CONST(platform::CUDAPlace, thread_tensor->place()).device;
+        platform::CUDADeviceGuard guard(dev_id);
+        hipMemset(thread_tensor->data<void>(), 0,
+                   thread_tensor->numel() * SizeOfType(thread_tensor->type()));
+#endif
 #ifdef PADDLE_WITH_XPU
         auto place = thread_tensor->place();
         xpu_set_device(BOOST_GET_CONST(platform::XPUPlace, place).device);
@@ -365,6 +399,13 @@ int HeterXpuTrainer::EndPass(const HeterRequest* request,
           BOOST_GET_CONST(platform::CUDAPlace, root_tensor->place()).device;
       platform::CUDADeviceGuard guard(dev_id);
       cudaMemset(root_tensor->data<void>(), 0,
+                 root_tensor->numel() * SizeOfType(root_tensor->type()));
+#endif
+#ifdef PADDLE_WITH_HIP
+      auto dev_id =
+          BOOST_GET_CONST(platform::CUDAPlace, root_tensor->place()).device;
+      platform::CUDADeviceGuard guard(dev_id);
+      hipMemset(root_tensor->data<void>(), 0,
                  root_tensor->numel() * SizeOfType(root_tensor->type()));
 #endif
 #ifdef PADDLE_WITH_XPU
@@ -443,6 +484,12 @@ int HeterXpuTrainer::RunTask(const HeterRequest* request,
     PADDLE_ENFORCE_CUDA_SUCCESS(
         cudaEventCreateWithFlags(&context->event_, cudaEventDisableTiming));
 #endif
+#ifdef PADDLE_WITH_HIP
+    auto dev_id = BOOST_GET_CONST(platform::CUDAPlace, place).device;
+    platform::CUDADeviceGuard guard(dev_id);
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        hipEventCreateWithFlags(&context->event_, hipEventDisableTiming));
+#endif
   }
 
   context->Reset();
@@ -451,7 +498,7 @@ int HeterXpuTrainer::RunTask(const HeterRequest* request,
     auto deserial_timer =
         std::make_shared<paddle::ps::CostTimer>("xpu_service_deserial");
     for (int i = 0; i < request->vars_size(); ++i) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
       heter_ptr_->DeSerializeToTensor(context->scope_, request->vars(i), place,
                                       copy_streams_[context->place_num_]);
 #endif
@@ -463,6 +510,14 @@ int HeterXpuTrainer::RunTask(const HeterRequest* request,
     PADDLE_ENFORCE_CUDA_SUCCESS(
         cudaEventRecord(context->event_, copy_streams_[context->place_num_]));
     while (cudaEventQuery(context->event_) != cudaSuccess) {
+      VLOG(3) << "wait for kernel";
+      bthread_yield();
+    }
+#endif
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        hipEventRecord(context->event_, copy_streams_[context->place_num_]));
+    while (hipEventQuery(context->event_) != hipSuccess) {
       VLOG(3) << "wait for kernel";
       bthread_yield();
     }
@@ -492,6 +547,21 @@ int HeterXpuTrainer::RunTask(const HeterRequest* request,
     }
   }
 #endif
+#ifdef PADDLE_WITH_HIP
+  auto* dev_ctx = static_cast<platform::CUDADeviceContext*>(
+      platform::DeviceContextPool::Instance().Get(place));
+  PADDLE_ENFORCE_CUDA_SUCCESS(
+      hipEventRecord(context->event_, dev_ctx->stream()));
+  // cudaEventSynchronize(context->event_);
+  {
+    auto wait_timer =
+        std::make_shared<paddle::ps::CostTimer>("xpu_service_wait");
+    while (hipEventQuery(context->event_) != hipSuccess) {
+      VLOG(3) << "wait for kernel";
+      bthread_yield();
+    }
+  }
+#endif
 #ifdef PADDLE_WITH_XPU
   xpu_wait();
 #endif
@@ -511,7 +581,7 @@ int HeterXpuTrainer::RunTask(const HeterRequest* request,
        ++i) {
     uint64_t tid =
         static_cast<uint64_t>(param_.program_config(0).push_dense_table_id(i));
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     fleet_ptr_->PushDenseVarsAsync(
         *(context->scope_), tid, dense_grad_names_[tid],
         &(context->push_dense_status_), scale_datanorm_, request->cur_batch(),

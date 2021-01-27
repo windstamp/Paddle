@@ -138,9 +138,9 @@ class PoolCUDNNOpKernel : public framework::OpKernel<T> {
     ScopedTensorDescriptor output_desc;
     ScopedPoolingDescriptor pool_desc;
 
-    cudnnTensorDescriptor_t cudnn_input_desc = input_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_input_desc = input_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_input.dims()));
-    cudnnTensorDescriptor_t cudnn_output_desc = output_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_output_desc = output_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_output.dims()));
 
     PoolingMode pooling_mode;
@@ -151,17 +151,28 @@ class PoolCUDNNOpKernel : public framework::OpKernel<T> {
                                : PoolingMode::kAverageInclusive;
     }
 
-    cudnnPoolingDescriptor_t cudnn_pool_desc =
+    gpuDnnPoolingDesc_t cudnn_pool_desc =
         pool_desc.descriptor(pooling_mode, ksize, paddings, strides);
 
     // ------------------- cudnn pool algorithm ---------------------
     auto handle = ctx.cuda_device_context().cudnn_handle();
     ScalingParamType<T> alpha = 1.0f, beta = 0.0f;
 
+#ifdef PADDLE_WITH_HIP
+    size_t work_space_size = 0;
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenPoolingGetWorkSpaceSize(
+          cudnn_output_desc, &work_space_size));
+    platform::Workspace cudnn_workspace(work_space_size);
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenPoolingForward(
+        handle, cudnn_pool_desc, &alpha, cudnn_input_desc,
+        tranformed_input_data, &beta, cudnn_output_desc,
+        tranformed_output_data, false, cudnn_workspace.data, work_space_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnPoolingForward(
         handle, cudnn_pool_desc, &alpha, cudnn_input_desc,
         tranformed_input_data, &beta, cudnn_output_desc,
         tranformed_output_data));
+#endif
     // add
     if (data_format == str_NDHWC) {
       auto &dev_ctx =
@@ -289,9 +300,9 @@ class PoolCUDNNGradOpKernel : public framework::OpKernel<T> {
     ScopedTensorDescriptor output_desc;
     ScopedPoolingDescriptor pool_desc;
 
-    cudnnTensorDescriptor_t cudnn_input_desc = input_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_input_desc = input_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_input.dims()));
-    cudnnTensorDescriptor_t cudnn_output_desc = output_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_output_desc = output_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_output.dims()));
 
     PoolingMode pooling_mode;
@@ -306,7 +317,7 @@ class PoolCUDNNGradOpKernel : public framework::OpKernel<T> {
                                : PoolingMode::kAverageInclusive;
     }
 
-    cudnnPoolingDescriptor_t cudnn_pool_desc =
+    gpuDnnPoolingDesc_t cudnn_pool_desc =
         pool_desc.descriptor(pooling_mode, ksize, paddings, strides);
 
     // ------------------- cudnn pool algorithm ---------------------
@@ -316,10 +327,21 @@ class PoolCUDNNGradOpKernel : public framework::OpKernel<T> {
       T *input_grad_data = transformed_input_grad.mutable_data<T>(
           transformed_input_grad.dims(), ctx.GetPlace());
       // Because beta is zero, it is unnecessary to reset input_grad.
+#ifdef PADDLE_WITH_HIP
+      size_t work_space_size = 0;
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenPoolingGetWorkSpaceSize(
+          cudnn_output_desc, &work_space_size));
+      platform::Workspace cudnn_workspace(work_space_size);
+      PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenPoolingBackward(
+          handle, cudnn_pool_desc, &alpha, cudnn_output_desc, output_data,
+          cudnn_output_desc, output_grad_data, cudnn_input_desc, input_data,
+          &beta, cudnn_input_desc, input_grad_data, cudnn_workspace.data));
+#else
       PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnPoolingBackward(
           handle, cudnn_pool_desc, &alpha, cudnn_output_desc, output_data,
           cudnn_output_desc, output_grad_data, cudnn_input_desc, input_data,
           &beta, cudnn_input_desc, input_grad_data));
+#endif
 
       if (data_format == str_NDHWC) {
         auto &dev_ctx =
@@ -340,17 +362,25 @@ namespace plat = paddle::platform;
 
 REGISTER_OP_KERNEL(pool2d, CUDNN, plat::CUDAPlace,
                    ops::PoolCUDNNOpKernel<float>,
+#ifndef PADDLE_WITH_HIP
                    ops::PoolCUDNNOpKernel<double>,
+#endif
                    ops::PoolCUDNNOpKernel<plat::float16>);
 REGISTER_OP_KERNEL(pool2d_grad, CUDNN, plat::CUDAPlace,
                    ops::PoolCUDNNGradOpKernel<float>,
+#ifndef PADDLE_WITH_HIP
                    ops::PoolCUDNNGradOpKernel<double>,
+#endif
                    ops::PoolCUDNNGradOpKernel<plat::float16>);
 
 REGISTER_OP_KERNEL(pool3d, CUDNN, plat::CUDAPlace,
                    ops::PoolCUDNNOpKernel<float>,
+#ifndef PADDLE_WITH_HIP
                    ops::PoolCUDNNOpKernel<double>,
+#endif
                    ops::PoolCUDNNOpKernel<plat::float16>);
 REGISTER_OP_KERNEL(pool3d_grad, CUDNN, plat::CUDAPlace,
-                   ops::PoolCUDNNGradOpKernel<float>,
-                   ops::PoolCUDNNGradOpKernel<double>);
+#ifndef PADDLE_WITH_HIP
+                   ops::PoolCUDNNGradOpKernel<double>,
+#endif
+                   ops::PoolCUDNNGradOpKernel<float>);

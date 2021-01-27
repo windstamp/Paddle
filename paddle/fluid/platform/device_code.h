@@ -25,9 +25,27 @@ limitations under the License. */
 #include "paddle/fluid/platform/dynload/cuda_driver.h"
 #include "paddle/fluid/platform/dynload/nvrtc.h"
 #endif
+#ifdef PADDLE_WITH_HIP
+#include "paddle/fluid/platform/dynload/hiprtc.h"
+#include "paddle/fluid/platform/dynload/rocm_driver.h"
+#endif
 
 namespace paddle {
 namespace platform {
+
+#ifdef PADDLE_WITH_CUDA
+#define gpurtcResult nvrtcResult
+typedef CUresult gpuError_t;
+typedef CUmodule gpuModule_t;
+typedef CUfunction gpuFunction_t;
+#endif
+
+#ifdef PADDLE_WITH_HIP
+#define gpurtcResult hiprtcResult
+typedef hipError_t gpuError_t;
+typedef hipModule_t gpuModule_t;
+typedef hipFunction_t gpuFunction_t;
+#endif
 
 class DeviceCode {
  public:
@@ -44,7 +62,7 @@ class DeviceCode {
   std::string kernel_;
 };
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 class CUDADeviceCode : public DeviceCode {
  public:
   explicit CUDADeviceCode(const Place& place, const std::string& name,
@@ -61,7 +79,7 @@ class CUDADeviceCode : public DeviceCode {
   static bool IsAvailable() { return available_; }
 
  private:
-  bool CheckNVRTCResult(nvrtcResult result, std::string function);
+  bool CheckNVRTCResult(gpurtcResult result, std::string function);
 
   static bool available_;
 
@@ -70,8 +88,8 @@ class CUDADeviceCode : public DeviceCode {
   int num_threads_{1024};
   int workload_per_thread_{1};
   std::vector<char> ptx_;
-  CUmodule module_;
-  CUfunction function_;
+  gpuModule_t module_;
+  gpuFunction_t function_;
 };
 #endif
 

@@ -14,7 +14,7 @@
 
 #pragma once
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include <map>
 #include <memory>
 #include <string>
@@ -24,6 +24,7 @@
 #include "paddle/fluid/framework/data_type.h"
 #include "paddle/fluid/platform/device_context.h"
 #include "paddle/fluid/platform/enforce.h"
+#include "paddle/fluid/platform/gpu_info.h"
 
 namespace paddle {
 namespace platform {
@@ -54,7 +55,7 @@ class NCCLComm {
   virtual int rank() const = 0;
   virtual int device_id() const = 0;
   virtual ncclComm_t comm() const = 0;
-  virtual cudaStream_t stream() const = 0;
+  virtual gpuStream_t stream() const = 0;
   virtual CUDADeviceContext* dev_context() const = 0;
   virtual ~NCCLComm() = default;
 };

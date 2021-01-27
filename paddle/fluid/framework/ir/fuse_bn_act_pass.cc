@@ -26,7 +26,7 @@ class Node;
 }  // namespace ir
 }  // namespace framework
 }  // namespace paddle
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cudnn_helper.h"
 #endif
 
@@ -35,8 +35,8 @@ namespace framework {
 namespace ir {
 
 void FuseBatchNormActPass::ApplyImpl(ir::Graph *graph) const {
-#ifdef PADDLE_WITH_CUDA
-#if CUDNN_VERSION_MIN(7, 4, 1)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+#if defined(PADDLE_WITH_HIP) || CUDNN_VERSION_MIN(7, 4, 1)
   // forward
   std::unordered_set<std::string> act_types = {"relu"};
   graph = FuseBatchNormAct(graph, act_types);

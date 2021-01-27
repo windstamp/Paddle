@@ -28,7 +28,7 @@ template <typename T, int MajorType = Eigen::RowMajor,
           typename IndexType = Eigen::DenseIndex>
 using EigenVector = framework::EigenVector<T, MajorType, IndexType>;
 
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 
 template <class OpResetOutput, typename T>
 void hl_naive_gru_forward_reset_output(

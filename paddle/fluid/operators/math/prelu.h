@@ -22,25 +22,25 @@ namespace paddle {
 namespace operators {
 namespace math {
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 template <typename T>
 class PreluChannelWiseDirectCUDAFunctor {
  public:
-  void operator()(cudaStream_t stream, const T *input, const T *alpha,
+  void operator()(gpuStream_t stream, const T *input, const T *alpha,
                   T *output, size_t batch_size, size_t channel, size_t numel);
 };
 
 template <typename T>
 class PreluElementWiseDirectCUDAFunctor {
  public:
-  void operator()(cudaStream_t stream, const T *input, const T *alpha,
+  void operator()(gpuStream_t stream, const T *input, const T *alpha,
                   T *output, size_t batch_size, size_t numel);
 };
 
 template <typename T>
 class PreluScalarDirectCUDAFunctor {
  public:
-  void operator()(cudaStream_t stream, const T *input, const T *alpha,
+  void operator()(gpuStream_t stream, const T *input, const T *alpha,
                   T *output, size_t numel);
 };
 

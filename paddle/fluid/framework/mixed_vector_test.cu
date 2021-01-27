@@ -12,7 +12,13 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#ifdef PADDLE_WITH_CUDA
 #include <cuda_runtime.h>
+#endif
+#ifdef PADDLE_WITH_HIP
+#include <hip/hip_runtime.h>
+#endif
+
 #include <memory>
 
 #include "glog/logging.h"
@@ -29,11 +35,19 @@ static __global__ void multiply_10(int* ptr) {
   }
 }
 
-cudaStream_t GetCUDAStream(paddle::platform::CUDAPlace place) {
+#ifdef PADDLE_WITH_HIP
+hipStream_t GetCUDAStream(paddle::platform::CUDAPlace place) {
   return reinterpret_cast<const paddle::platform::CUDADeviceContext*>(
              paddle::platform::DeviceContextPool::Instance().Get(place))
       ->stream();
 }
+#else
+gpuStream_t GetCUDAStream(paddle::platform::CUDAPlace place) {
+  return reinterpret_cast<const paddle::platform::CUDADeviceContext*>(
+             paddle::platform::DeviceContextPool::Instance().Get(place))
+      ->stream();
+}
+#endif
 
 TEST(mixed_vector, GPU_VECTOR) {
   vec<int> tmp;
@@ -43,7 +57,12 @@ TEST(mixed_vector, GPU_VECTOR) {
   ASSERT_EQ(tmp.size(), 10UL);
   paddle::platform::CUDAPlace gpu(0);
 
+#ifdef PADDLE_WITH_HIP
+  hipLaunchKernelGGL(multiply_10, dim3(1), dim3(1), 0, GetCUDAStream(gpu),
+                     tmp.MutableData(gpu));
+#else
   multiply_10<<<1, 1, 0, GetCUDAStream(gpu)>>>(tmp.MutableData(gpu));
+#endif
 
   for (int i = 0; i < 10; ++i) {
     ASSERT_EQ(tmp[i], i * 10);
@@ -64,11 +83,23 @@ TEST(mixed_vector, MultiGPU) {
   ASSERT_EQ(tmp.size(), 10UL);
   paddle::platform::CUDAPlace gpu0(0);
   paddle::platform::SetDeviceId(0);
+
+#ifdef PADDLE_WITH_HIP
+  hipLaunchKernelGGL(multiply_10, dim3(1), dim3(1), 0, GetCUDAStream(gpu0),
+                     tmp.MutableData(gpu0));
+#else
   multiply_10<<<1, 1, 0, GetCUDAStream(gpu0)>>>(tmp.MutableData(gpu0));
+#endif
   paddle::platform::CUDAPlace gpu1(1);
   auto* gpu1_ptr = tmp.MutableData(gpu1);
   paddle::platform::SetDeviceId(1);
+
+#ifdef PADDLE_WITH_HIP
+  hipLaunchKernelGGL(multiply_10, dim3(1), dim3(1), 0, GetCUDAStream(gpu1),
+                     gpu1_ptr);
+#else
   multiply_10<<<1, 1, 0, GetCUDAStream(gpu1)>>>(gpu1_ptr);
+#endif
   for (int i = 0; i < 10; ++i) {
     ASSERT_EQ(tmp[i], i * 100);
   }

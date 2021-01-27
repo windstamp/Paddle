@@ -20,12 +20,17 @@
 #include "paddle/fluid/framework/selected_rows.h"
 #include "paddle/fluid/operators/reader/lod_tensor_blocking_queue.h"
 #include "paddle/fluid/platform/macros.h"
-#ifdef PADDLE_WITH_CUDA
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include "paddle/fluid/operators/nccl/nccl_gpu_common.h"
 #include "paddle/fluid/platform/nccl_helper.h"
 #endif
+#if defined(PADDLE_WITH_CUDA)
 #include <cudnn.h>
+#endif
+#if defined(PADDLE_WITH_HIP)
+#include <miopen/miopen.h>
+#endif
 #include "paddle/fluid/operators/conv_cudnn_op_cache.h"
 #include "paddle/fluid/operators/cudnn_rnn_cache.h"
 #endif

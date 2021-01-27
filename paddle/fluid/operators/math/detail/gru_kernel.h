@@ -42,7 +42,7 @@ class gru_resetOutput {
           (*value_reset_output + *value_reset_bias) * (*value_reset_gate);
     }
   }
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 #ifndef __AVX__
   static const bool avx = false;
 #else
@@ -84,7 +84,7 @@ class gru_finalOutput {
                       ((*value_update_gate) * (*value_frame_state));
     }
   }
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 #ifndef __AVX__
   static const bool avx = false;
 #else
@@ -137,7 +137,7 @@ class gru_stateGrad {
                                      *value_frame_state, act_input);
     }
   }
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 #ifndef __AVX__
   static const bool avx = false;
 #else
@@ -187,7 +187,7 @@ class gru_resetGrad {
     *grad_reset_gate =
         activation(*grad_reset_gate, *value_reset_gate, act_gate);
   }
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 #ifndef __AVX__
   static const bool avx = false;
 #else
@@ -230,7 +230,7 @@ class gru {
                                   *value_reset_gate, act_gate);
     *grad_reset_output = (*value_reset_gate) * (*grad_frame_state);
   }
-#ifndef __NVCC__
+#if !defined(__NVCC__) && !defined(__HIPCC___)
 #ifndef __AVX__
   static const bool avx = false;
 #else

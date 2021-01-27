@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#if defined(__HIPCC__) && !defined(EIGEN_NO_HIP)
 #include "paddle/fluid/operators/reduce_ops/reduce_min_max_op.h"
+#endif
 
 REGISTER_OP_CUDA_KERNEL(reduce_max,
                         ops::ReduceKernel<paddle::platform::CUDADeviceContext,

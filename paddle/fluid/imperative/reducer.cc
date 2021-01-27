@@ -30,7 +30,7 @@
 #include "paddle/fluid/memory/memory.h"
 #include "paddle/fluid/string/string_helper.h"
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include "paddle/fluid/operators/math/concat_and_split.h"
 #include "paddle/fluid/operators/strided_memcpy.h"
 #endif
@@ -40,7 +40,7 @@
 namespace paddle {
 namespace imperative {
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 std::shared_ptr<Reducer> Reducer::s_instance_ = NULL;
 
 template <typename DeviceContext, typename T>
@@ -140,7 +140,7 @@ void Group::ConcatTensors(const platform::DeviceContext &context) {
 
   auto place = context.GetPlace();
   if (platform::is_gpu_place(place)) {
-#ifdef PADDLE_WITH_NCCL
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
     ConcatTensorsWithType(
         static_cast<const platform::CUDADeviceContext &>(context),
         dense_tensors_, &dense_contents_, dtype_);
@@ -162,7 +162,7 @@ void Group::ConcatTensors(const platform::DeviceContext &context) {
 void Group::SplitTensors(const platform::DeviceContext &context) {
   auto place = context.GetPlace();
   if (platform::is_gpu_place(place)) {
-#ifdef PADDLE_WITH_NCCL
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
     SplitTensorsWithType(
         static_cast<const platform::CUDADeviceContext &>(context),
         &dense_contents_, &dense_tensors_, dtype_);

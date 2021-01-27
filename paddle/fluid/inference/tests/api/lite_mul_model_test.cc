@@ -58,7 +58,7 @@ int test_main(const AnalysisConfig& config, Barrier* barrier = nullptr) {
   return 0;
 }
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 TEST(AnalysisPredictor, thread_local_stream) {
   const size_t thread_num = 5;
   std::vector<std::thread> threads(thread_num);

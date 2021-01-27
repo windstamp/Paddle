@@ -25,7 +25,7 @@ DECLARE_int64(cudnn_exhaustive_search_times);
 namespace paddle {
 namespace operators {
 
-#if CUDNN_VERSION >= 7100
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7100
 using Tensor = framework::Tensor;
 using ScopedTensorDescriptor = platform::ScopedTensorDescriptor;
 using ScopedFilterDescriptor = platform::ScopedFilterDescriptor;
@@ -169,16 +169,16 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
         platform::dynload::cudnnSetConvolutionGroupCount(cudnn_conv_desc,
                                                          groups));
 
-    cudnnTensorDescriptor_t cudnn_input_desc = input_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_input_desc = input_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_input.dims()));
-    cudnnTensorDescriptor_t cudnn_output_desc = output_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_output_desc = output_desc.descriptor<T>(
         layout, framework::vectorize<int>(transformed_output.dims()));
     cudnnFilterDescriptor_t cudnn_filter_desc = filter_desc.descriptor<T>(
         layout, framework::vectorize<int>(filter->dims()));
     // Now only support NCHW
     std::vector<int> bias_dim = {
         1, static_cast<int>(transformed_output.dims()[1]), 1, 1};
-    cudnnTensorDescriptor_t cudnn_bias_desc =
+    gpuDnnTensorDesc_t cudnn_bias_desc =
         bias_desc.descriptor<T>(layout, bias_dim);
     cudnnActivationDescriptor_t cudnn_act_desc =
         act_desc.descriptor<T>(activation);
@@ -194,7 +194,7 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
     }
 
     // ------------------- cudnn conv algorithm ---------------------
-    cudnnConvolutionFwdAlgo_t algo;
+    gpuDnnConvolutionFwdAlgo_t algo;
     auto handle = dev_ctx.cudnn_handle();
     auto workspace_handle = dev_ctx.cudnn_workspace_handle();
 
@@ -215,8 +215,8 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
       int perf_count;
       int best_algo_idx = 0;
       size_t tmp_size = 0;
-      std::unique_ptr<cudnnConvolutionFwdAlgoPerf_t[]> perf_results(
-          new cudnnConvolutionFwdAlgoPerf_t[kNUM_CUDNN_FWD_ALGS]);
+      std::unique_ptr<gpuDnnConvolutionFwdAlgoPerf_t[]> perf_results(
+          new gpuDnnConvolutionFwdAlgoPerf_t[kNUM_CUDNN_FWD_ALGS]);
       PADDLE_ENFORCE_CUDA_SUCCESS(
           platform::dynload::cudnnGetConvolutionForwardAlgorithm_v7(
               handle, cudnn_input_desc, cudnn_filter_desc, cudnn_conv_desc,
@@ -238,10 +238,10 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
       VLOG(3) << "cuDNN forward algo " << algo;
 #endif
     } else {
-      std::function<cudnnConvolutionFwdAlgo_t()> search_func =
-          [&]() -> cudnnConvolutionFwdAlgo_t {
+      std::function<gpuDnnConvolutionFwdAlgo_t()> search_func =
+          [&]() -> gpuDnnConvolutionFwdAlgo_t {
         int returned_algo_count;
-        std::array<cudnnConvolutionFwdAlgoPerf_t, kNUM_CUDNN_FWD_ALGS>
+        std::array<gpuDnnConvolutionFwdAlgoPerf_t, kNUM_CUDNN_FWD_ALGS>
             fwd_perf_stat;
         auto cudnn_find_func = [&](void* cudnn_workspace) {
           PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -260,7 +260,7 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
         }
         return fwd_perf_stat[0].algo;
       };
-      AlgorithmsCache<cudnnConvolutionFwdAlgo_t>& algo_cache =
+      AlgorithmsCache<gpuDnnConvolutionFwdAlgo_t>& algo_cache =
           *(framework::ConvSearchCache::Instance().GetConvFusion());
       int search_times = ctx.Attr<int>("search_times");
       search_times = std::max(
@@ -358,7 +358,7 @@ class CUDNNConvFusionOpKernel : public framework::OpKernel<T> {
 }  // namespace operators
 }  // namespace paddle
 
-#if CUDNN_VERSION >= 7100
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7100
 namespace ops = paddle::operators;
 REGISTER_OP_CUDA_KERNEL(conv2d_fusion, ops::CUDNNConvFusionOpKernel<float>,
                         ops::CUDNNConvFusionOpKernel<double>);

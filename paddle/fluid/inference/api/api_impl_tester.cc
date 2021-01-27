@@ -58,7 +58,7 @@ NativeConfig GetConfig() {
   config.model_dir = FLAGS_word2vec_dirname;
   LOG(INFO) << "dirname  " << config.model_dir;
   config.fraction_of_gpu_memory = 0.15;
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
   config.use_gpu = true;
 #else
   config.use_gpu = false;
@@ -287,7 +287,7 @@ TEST(inference_api_native, image_classification_cpu_threads) {
   MainThreadsImageClassification(false /*use_gpu*/);
 }
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 TEST(inference_api_native, word2vec_gpu) { MainWord2Vec(true /*use_gpu*/); }
 // Turn off temporarily for the unstable result.
 // TEST(inference_api_native, word2vec_gpu_threads) {

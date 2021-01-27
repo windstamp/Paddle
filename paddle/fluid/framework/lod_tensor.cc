@@ -220,8 +220,8 @@ LoDAndOffset GetSubLoDAndAbsoluteOffset(const LoD &lod, size_t start_idx,
 }
 
 void AppendLoD(LoD *lod, const LoD &lod_length) {
-  PADDLE_ENFORCE(
-      lod->empty() || lod->size() == lod_length.size(),
+  PADDLE_ENFORCE_EQ(
+      lod->empty() || lod->size() == lod_length.size(), true,
       platform::errors::InvalidArgument(
           "The input LoD length should be equal to the appended LoD size, but "
           "received input LoD length is %d, actual LoD size is %d.",

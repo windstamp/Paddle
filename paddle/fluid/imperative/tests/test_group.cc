@@ -20,14 +20,14 @@
 #include "glog/logging.h"
 #include "gtest/gtest.h"
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include "paddle/fluid/imperative/reducer.h"
 #endif
 
 namespace paddle {
 namespace imperative {
 
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 TEST(TestGroup, TestPrintGroupMessage) {
   Group group;
   std::stringstream stream1, stream2;

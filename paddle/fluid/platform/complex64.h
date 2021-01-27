@@ -22,10 +22,17 @@
 #define PADDLE_ALIGN(x) __declspec(align(x))
 #endif
 
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+#include <thrust/complex.h>
+#endif
+
 #ifdef PADDLE_WITH_CUDA
 #include <cuComplex.h>
-#include <thrust/complex.h>
-#endif  // PADDLE_WITH_CUDA
+#endif
+
+#ifdef PADDLE_WITH_HIP
+#include <hip/hip_complex.h>
+#endif
 
 #include <cstring>
 
@@ -54,7 +61,7 @@ struct PADDLE_ALIGN(8) complex64 {
   ~complex64() = default;
 
   HOSTDEVICE complex64(float real, float imag) : real(real), imag(imag) {}
-#if defined(PADDLE_WITH_CUDA)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 
   HOSTDEVICE inline explicit complex64(const thrust::complex<float>& c) {
     real = c.real();
@@ -65,9 +72,15 @@ struct PADDLE_ALIGN(8) complex64 {
     return thrust::complex<float>(real, imag);
   }
 
+#ifdef PADDLE_WITH_HIP
+  HOSTDEVICE inline explicit operator hipFloatComplex() const {
+    return make_hipFloatComplex(real, imag);
+  }
+#else
   HOSTDEVICE inline explicit operator cuFloatComplex() const {
     return make_cuFloatComplex(real, imag);
   }
+#endif
 #endif
 
   HOSTDEVICE complex64(const float& val) : real(val), imag(0) {}
@@ -207,7 +220,7 @@ struct PADDLE_ALIGN(8) complex64 {
 };
 
 HOSTDEVICE inline complex64 operator+(const complex64& a, const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::complex<float>(a.real, a.imag) +
                    thrust::complex<float>(b.real, b.imag));
 #else
@@ -216,7 +229,7 @@ HOSTDEVICE inline complex64 operator+(const complex64& a, const complex64& b) {
 }
 
 HOSTDEVICE inline complex64 operator-(const complex64& a, const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::complex<float>(a.real, a.imag) -
                    thrust::complex<float>(b.real, b.imag));
 #else
@@ -225,7 +238,7 @@ HOSTDEVICE inline complex64 operator-(const complex64& a, const complex64& b) {
 }
 
 HOSTDEVICE inline complex64 operator*(const complex64& a, const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::complex<float>(a.real, a.imag) *
                    thrust::complex<float>(b.real, b.imag));
 #else
@@ -235,7 +248,7 @@ HOSTDEVICE inline complex64 operator*(const complex64& a, const complex64& b) {
 }
 
 HOSTDEVICE inline complex64 operator/(const complex64& a, const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::complex<float>(a.real, a.imag) /
                    thrust::complex<float>(b.real, b.imag));
 #else
@@ -246,7 +259,7 @@ HOSTDEVICE inline complex64 operator/(const complex64& a, const complex64& b) {
 }
 
 HOSTDEVICE inline complex64 operator-(const complex64& a) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(-thrust::complex<float>(a.real, a.imag));
 #else
   complex64 res;
@@ -258,7 +271,7 @@ HOSTDEVICE inline complex64 operator-(const complex64& a) {
 
 HOSTDEVICE inline complex64& operator+=(complex64& a,  // NOLINT
                                         const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   a = complex64(thrust::complex<float>(a.real, a.imag) +=
                 thrust::complex<float>(b.real, b.imag));
   return a;
@@ -271,7 +284,7 @@ HOSTDEVICE inline complex64& operator+=(complex64& a,  // NOLINT
 
 HOSTDEVICE inline complex64& operator-=(complex64& a,  // NOLINT
                                         const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   a = complex64(thrust::complex<float>(a.real, a.imag) -=
                 thrust::complex<float>(b.real, b.imag));
   return a;
@@ -284,7 +297,7 @@ HOSTDEVICE inline complex64& operator-=(complex64& a,  // NOLINT
 
 HOSTDEVICE inline complex64& operator*=(complex64& a,  // NOLINT
                                         const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   a = complex64(thrust::complex<float>(a.real, a.imag) *=
                 thrust::complex<float>(b.real, b.imag));
   return a;
@@ -297,7 +310,7 @@ HOSTDEVICE inline complex64& operator*=(complex64& a,  // NOLINT
 
 HOSTDEVICE inline complex64& operator/=(complex64& a,  // NOLINT
                                         const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   a = complex64(thrust::complex<float>(a.real, a.imag) /=
                 thrust::complex<float>(b.real, b.imag));
   return a;
@@ -360,7 +373,7 @@ HOSTDEVICE inline bool(isfinite)(const complex64& a) {
 }
 
 HOSTDEVICE inline float(abs)(const complex64& a) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::abs(thrust::complex<float>(a.real, a.imag)));
 #else
   return std::abs(std::complex<float>(a.real, a.imag));
@@ -368,7 +381,7 @@ HOSTDEVICE inline float(abs)(const complex64& a) {
 }
 
 HOSTDEVICE inline complex64(pow)(const complex64& a, const complex64& b) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::pow(thrust::complex<float>(a.real, a.imag),
                                thrust::complex<float>(b.real, b.imag)));
 #else
@@ -377,7 +390,7 @@ HOSTDEVICE inline complex64(pow)(const complex64& a, const complex64& b) {
 }
 
 HOSTDEVICE inline complex64(sqrt)(const complex64& a) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::sqrt(thrust::complex<float>(a.real, a.imag)));
 #else
   return std::sqrt(std::complex<float>(a));
@@ -385,7 +398,7 @@ HOSTDEVICE inline complex64(sqrt)(const complex64& a) {
 }
 
 HOSTDEVICE inline complex64(tanh)(const complex64& a) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::tanh(thrust::complex<float>(a.real, a.imag)));
 #else
   return std::tanh(std::complex<float>(a));
@@ -393,7 +406,7 @@ HOSTDEVICE inline complex64(tanh)(const complex64& a) {
 }
 
 HOSTDEVICE inline complex64(log)(const complex64& a) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
   return complex64(thrust::log(thrust::complex<float>(a.real, a.imag)));
 #else
   return std::log(std::complex<float>(a));

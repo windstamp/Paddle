@@ -54,7 +54,7 @@ class Array {
   }
 
   HOSTDEVICE inline T &at(size_t i) {
-#ifndef __CUDA_ARCH__
+#if !defined(__CUDA_ARCH__) && !defined(__HIPCC__)
     PADDLE_ENFORCE_LT(
         i, N, platform::errors::OutOfRange("Array index out of bounds."));
 #endif
@@ -62,7 +62,7 @@ class Array {
   }
 
   HOSTDEVICE inline const T &at(size_t i) const {
-#ifndef __CUDA_ARCH__
+#if !defined(__CUDA_ARCH__) && !defined(__HIPCC__)
     PADDLE_ENFORCE_LT(
         i, N, platform::errors::OutOfRange("Array index out of bounds."));
 #endif
@@ -103,8 +103,8 @@ class Array<T, 0> {
   HOSTDEVICE inline T *GetMutable() { return nullptr; }
 
   HOSTDEVICE inline T &operator[](size_t) {
-#ifdef __CUDA_ARCH__
-    static T obj();
+#if !defined(__CUDA_ARCH__) && !defined(__HIPCC__)
+    static T obj{};
     return obj;
 #else
     PADDLE_THROW(platform::errors::Unavailable("Array<T, 0> has no element."));
@@ -112,8 +112,8 @@ class Array<T, 0> {
   }
 
   HOSTDEVICE inline const T &operator[](size_t) const {
-#ifdef __CUDA_ARCH__
-    static const T obj();
+#if !defined(__CUDA_ARCH__) && !defined(__HIPCC__)
+    static const T obj{};
     return obj;
 #else
     PADDLE_THROW(platform::errors::Unavailable("Array<T, 0> has no element."));

@@ -17,7 +17,6 @@ limitations under the License. */
 #include <vector>
 #include "paddle/fluid/framework/tensor.h"
 #include "paddle/fluid/platform/cudnn_helper.h"
-#include "paddle/fluid/platform/dynload/cudnn.h"
 
 namespace paddle {
 namespace operators {
@@ -39,11 +38,11 @@ class ScopedRNNBase {
         is_bidirec_(is_bidirec) {}
 
   template <typename T>
-  void Create(const cudnnHandle_t& handle, const platform::Place& place,
+  void Create(const gpuDnnHandle_t& handle, const platform::Place& place,
               const std::vector<int>& sequence_length, size_t* workspace_size,
               size_t* reserve_size, framework::Tensor* dropout_state) {
     int numDirections = is_bidirec_ ? 2 : 1;
-    cudnnDataType_t cudnn_type = platform::CudnnDataType<T>::type;
+    gpuDnnDataType_t cudnn_type = platform::CudnnDataType<T>::type;
 
     // ------------------- cudnn x, y descriptors ---------------------
     std::vector<int> dims_x = {batch_size_, input_size_, 1};
@@ -55,7 +54,7 @@ class ScopedRNNBase {
       y_descs_.emplace_back(y_desc_.descriptor<T>(dims_y, strides_y));
     }
 
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
     if (!sequence_length.empty()) {
       x_seq_desc_.descriptor<T>(seq_length_, batch_size_, input_size_, true,
                                 sequence_length);
@@ -77,30 +76,42 @@ class ScopedRNNBase {
     // ------------------- cudnn dropout descriptors ---------------------
     size_t state_size;
     if (!initialized_) {
+#ifdef PADDLE_WITH_HIP
+      PADDLE_ENFORCE_CUDA_SUCCESS(
+          platform::dynload::miopenDropoutGetStatesSize(handle, &state_size));
+      dropout_state->mutable_data<uint8_t>({static_cast<int64_t>(state_size)},
+                                           place);
+#else
       PADDLE_ENFORCE_CUDA_SUCCESS(
           platform::dynload::cudnnDropoutGetStatesSize(handle, &state_size));
       dropout_state->mutable_data<uint8_t>({static_cast<int64_t>(state_size)},
                                            place);
+#endif
     }
     dropout_desc_.descriptor(handle, place, initialized_, dropout_prob_,
                              dropout_state, seed_, state_size);
 
 // ------------------- cudnn rnn descriptors ---------------------
-#if CUDNN_VERSION >= 6000
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenSetRNNDescriptor(
+        rnn_desc_.desc(), hidden_size_, num_layers_, 
+        miopenRNNlinear, is_bidirec_ ? miopenRNNbidirection : miopenRNNunidirection, 
+        miopenLSTM, miopenRNNNoBias, miopenRNNdefault, cudnn_type));
+#elif CUDNN_VERSION >= 6000
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnSetRNNDescriptor_v6(
         handle, rnn_desc_.desc(), hidden_size_, num_layers_,
-        dropout_desc_.desc(), CUDNN_LINEAR_INPUT,
-        is_bidirec_ ? CUDNN_BIDIRECTIONAL : CUDNN_UNIDIRECTIONAL, CUDNN_LSTM,
-        CUDNN_RNN_ALGO_STANDARD, cudnn_type));
+        dropout_desc_.desc(), GPUDNN_LINEAR_INPUT,
+        is_bidirec_ ? GPUDNN_BIDIRECTIONAL : GPUDNN_UNIDIRECTIONAL, GPUDNN_LSTM,
+        GPUDNN_RNN_ALGO_STANDARD, cudnn_type));
 #else
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnSetRNNDescriptor(
         rnn_desc_.desc(), hidden_size_, num_layers_, dropout_desc_.desc(),
-        CUDNN_LINEAR_INPUT,
-        is_bidirec_ ? CUDNN_BIDIRECTIONAL : CUDNN_UNIDIRECTIONAL, CUDNN_LSTM,
+        GPUDNN_LINEAR_INPUT,
+        is_bidirec_ ? GPUDNN_BIDIRECTIONAL : GPUDNN_UNIDIRECTIONAL, GPUDNN_LSTM,
         cudnn_type));
 #endif
 
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
     if (!sequence_length.empty()) {
       PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnSetRNNPaddingMode(
           rnn_desc_.desc(), CUDNN_RNN_PADDED_IO_ENABLED));
@@ -109,8 +120,13 @@ class ScopedRNNBase {
 
     // ------------------- cudnn weights_size ---------------------
     size_t weights_size_;
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetRNNParamsSize(
+        handle, rnn_desc_.desc(), x_descs_[0], &weights_size_, cudnn_type));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnGetRNNParamsSize(
         handle, rnn_desc_.desc(), x_descs_[0], &weights_size_, cudnn_type));
+#endif
     PADDLE_ENFORCE_EQ(
         weights_size_, sizeof(T) * weight_numel_,
         platform::errors::InvalidArgument(
@@ -121,6 +137,15 @@ class ScopedRNNBase {
     std::vector<int> dim_w = {dim_tmp, 1, 1};
     weight_desc_.descriptor<T>(layout, dim_w);
     // ------------------- cudnn workspace, reserve size ---------------------
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::miopenGetRNNWorkspaceSize(
+        handle, rnn_desc_.desc(), seq_length_, x_descs_.data(),
+        workspace_size));
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        platform::dynload::miopenGetRNNTrainingReserveSize(
+            handle, rnn_desc_.desc(), seq_length_, x_descs_.data(),
+            reserve_size));
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::cudnnGetRNNWorkspaceSize(
         handle, rnn_desc_.desc(), seq_length_, x_descs_.data(),
         workspace_size));
@@ -128,20 +153,21 @@ class ScopedRNNBase {
         platform::dynload::cudnnGetRNNTrainingReserveSize(
             handle, rnn_desc_.desc(), seq_length_, x_descs_.data(),
             reserve_size));
+#endif
   }
-  cudnnTensorDescriptor_t* x_descs() { return x_descs_.data(); }
-  cudnnTensorDescriptor_t* y_descs() { return y_descs_.data(); }
-#if CUDNN_VERSION >= 7201
+  gpuDnnTensorDesc_t* x_descs() { return x_descs_.data(); }
+  gpuDnnTensorDesc_t* y_descs() { return y_descs_.data(); }
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
   cudnnRNNDataDescriptor_t x_seq_desc() { return x_seq_desc_.desc(); }
   cudnnRNNDataDescriptor_t y_seq_desc() { return y_seq_desc_.desc(); }
 #endif
-  cudnnTensorDescriptor_t init_h_desc() { return init_h_desc_.desc(); }
-  cudnnTensorDescriptor_t init_c_desc() { return init_c_desc_.desc(); }
-  cudnnTensorDescriptor_t last_h_desc() { return last_h_desc_.desc(); }
-  cudnnTensorDescriptor_t last_c_desc() { return last_c_desc_.desc(); }
-  cudnnRNNDescriptor_t rnn_desc() { return rnn_desc_.desc(); }
-  cudnnDropoutDescriptor_t dropout_desc() { return dropout_desc_.desc(); }
-  cudnnFilterDescriptor_t weight_desc() { return weight_desc_.desc(); }
+  gpuDnnTensorDesc_t init_h_desc() { return init_h_desc_.desc(); }
+  gpuDnnTensorDesc_t init_c_desc() { return init_c_desc_.desc(); }
+  gpuDnnTensorDesc_t last_h_desc() { return last_h_desc_.desc(); }
+  gpuDnnTensorDesc_t last_c_desc() { return last_c_desc_.desc(); }
+  gpuDnnRNNDesc_t rnn_desc() { return rnn_desc_.desc(); }
+  gpuDnnDropoutDescriptor_t dropout_desc() { return dropout_desc_.desc(); }
+  gpuDnnFilterDesc_t weight_desc() { return weight_desc_.desc(); }
 
  private:
   int seq_length_;
@@ -154,12 +180,12 @@ class ScopedRNNBase {
   int weight_numel_;
   bool initialized_;
   bool is_bidirec_;
-  std::vector<cudnnTensorDescriptor_t> x_descs_;
-  std::vector<cudnnTensorDescriptor_t> y_descs_;
+  std::vector<gpuDnnTensorDesc_t> x_descs_;
+  std::vector<gpuDnnTensorDesc_t> y_descs_;
 
   platform::ScopedTensorDescriptor x_desc_;
   platform::ScopedTensorDescriptor y_desc_;
-#if CUDNN_VERSION >= 7201
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION >= 7201
   platform::ScopedRNNTensorDescriptor x_seq_desc_;
   platform::ScopedRNNTensorDescriptor y_seq_desc_;
 #endif

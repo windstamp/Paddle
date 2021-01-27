@@ -238,7 +238,7 @@ void Pool2dDirectCUDAFunctor<PoolProcess, T>::operator()(
     const std::vector<int>& output_shape, const std::vector<int>& ksize,
     const std::vector<int>& strides, const std::vector<int>& paddings,
     PoolProcess pool_compute, bool exclusive, bool adaptive, T* output,
-    cudaStream_t stream) {
+    gpuStream_t stream) {
   const int batch_size = input_shape[0];
   const int input_channels = input_shape[1];
   const int input_height = input_shape[2];

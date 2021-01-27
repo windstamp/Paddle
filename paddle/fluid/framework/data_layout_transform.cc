@@ -67,9 +67,9 @@ struct CastDataLayout {
 void TransDataLayout(const OpKernelType& kernel_type_for_var,
                      const OpKernelType& expected_kernel_type, const Tensor& in,
                      Tensor* out) {
-  PADDLE_ENFORCE(
+  PADDLE_ENFORCE_EQ(
       platform::places_are_same_class(kernel_type_for_var.place_,
-                                      expected_kernel_type.place_),
+                                      expected_kernel_type.place_), true,
       platform::errors::PreconditionNotMet(
           "TransDataLayout only support DataLayout transform on same place."));
 

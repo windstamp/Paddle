@@ -16,7 +16,7 @@ limitations under the License. */
 
 #include <memory>
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cudnn_helper.h"
 #endif
 

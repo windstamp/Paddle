@@ -23,8 +23,8 @@
 #include "paddle/fluid/framework/selected_rows.h"
 #include "paddle/fluid/framework/var_type_traits.h"
 #include "paddle/fluid/operators/reader/lod_tensor_blocking_queue.h"
-#ifdef PADDLE_WITH_CUDA
-#if defined(PADDLE_WITH_NCCL)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include "paddle/fluid/operators/nccl/nccl_gpu_common.h"
 #include "paddle/fluid/platform/nccl_helper.h"
 #endif

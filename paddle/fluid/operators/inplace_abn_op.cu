@@ -85,8 +85,12 @@ class InplaceABNGradKernel
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 REGISTER_OP_CUDA_KERNEL(inplace_abn,
-                        ops::InplaceABNKernel<plat::CUDADeviceContext, float>,
-                        ops::InplaceABNKernel<plat::CUDADeviceContext, double>);
-REGISTER_OP_CUDA_KERNEL(
-    inplace_abn_grad, ops::InplaceABNGradKernel<plat::CUDADeviceContext, float>,
-    ops::InplaceABNGradKernel<plat::CUDADeviceContext, double>);
+#ifndef PADDLE_WITH_HIP
+     ps::InplaceABNKernel<plat::CUDADeviceContext, double>,
+#endif
+     ops::InplaceABNKernel<plat::CUDADeviceContext, float>);
+REGISTER_OP_CUDA_KERNEL(inplace_abn_grad,
+#ifndef PADDLE_WITH_HIP
+    ops::InplaceABNGradKernel<plat::CUDADeviceContext, double>,
+#endif
+    ops::InplaceABNGradKernel<plat::CUDADeviceContext, float>);

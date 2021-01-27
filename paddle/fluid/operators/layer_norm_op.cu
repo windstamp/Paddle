@@ -12,7 +12,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include <cub/cub.cuh>
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
 #include <memory>
 #include <vector>
 
@@ -392,12 +398,17 @@ __global__ void LayerNormBackwardComputeGradInput(
     }
     // intra-warp reductions
     for (int mask = BDIMX / 2; mask > 0; mask /= 2) {
+#ifdef PADDLE_WITH_HIP
+      sum_loss1 += __shfl_xor(sum_loss1, mask, warpSize);  // WARP_SHFL_XOR(sum_loss1, mask);
+      sum_loss2 += __shfl_xor(sum_loss2, mask, warpSize);  // WARP_SHFL_XOR(sum_loss2, mask);
+#else
       sum_loss1 +=
           __shfl_xor_sync(0xffffffff, sum_loss1, mask,
                           warpSize);  // WARP_SHFL_XOR(sum_loss1, mask);
       sum_loss2 +=
           __shfl_xor_sync(0xffffffff, sum_loss2, mask,
                           warpSize);  // WARP_SHFL_XOR(sum_loss2, mask);
+#endif
     }
     // inter-warp reductions
     if (BDIMY > 1) {
@@ -821,7 +832,7 @@ static void LayerNormBackward(const T *x, const T *d_y, const U *scale,
 }
 
 template <typename T>
-void LayerNormDirectCUDAFunctor<T>::operator()(cudaStream_t stream,
+void LayerNormDirectCUDAFunctor<T>::operator()(gpuStream_t stream,
                                                const T *input,
                                                std::vector<int> input_shape,
                                                const T *bias, const T *scale,
@@ -945,11 +956,15 @@ namespace plat = paddle::platform;
 REGISTER_OP_CUDA_KERNEL(
     layer_norm,
     ops::LayerNormKernel<paddle::platform::CUDADeviceContext, float>,
+#ifndef PADDLE_WITH_HIP
     ops::LayerNormKernel<paddle::platform::CUDADeviceContext, double>,
+#endif
     ops::LayerNormKernel<paddle::platform::CUDADeviceContext, plat::float16>);
 REGISTER_OP_CUDA_KERNEL(
     layer_norm_grad,
     ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext, float>,
+#ifndef PADDLE_WITH_HIP
     ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext, double>,
+#endif 
     ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext,
                              plat::float16>);

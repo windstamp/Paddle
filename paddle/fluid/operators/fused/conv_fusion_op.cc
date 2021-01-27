@@ -15,7 +15,7 @@ limitations under the License. */
 #include <string>
 #include <vector>
 #include "paddle/fluid/operators/conv_op.h"
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cudnn_helper.h"
 #endif
 

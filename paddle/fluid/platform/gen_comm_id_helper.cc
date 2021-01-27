@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#ifdef PADDLE_WITH_NCCL
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 #include "paddle/fluid/platform/gen_comm_id_helper.h"
 
 #include <arpa/inet.h>
@@ -335,7 +335,7 @@ void RecvBroadCastCommID(int server_fd, std::string endpoint,
   template void RecvBroadCastCommID<Type>(std::string endpoint,             \
                                           std::vector<Type> * nccl_ids);
 
-#ifdef PADDLE_WITH_NCCL
+#if defined(PADDLE_WITH_NCCL) || defined(PADDLE_WITH_RCCL)
 INSTANT_TEMPLATE(ncclUniqueId)
 #endif
 #ifdef PADDLE_WITH_XPU_BKCL

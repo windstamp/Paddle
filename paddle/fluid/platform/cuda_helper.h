@@ -16,16 +16,30 @@
 
 #include <mutex>  // NOLINT
 
+#ifdef PADDLE_WITH_CUDA
 #include "paddle/fluid/platform/dynload/cublas.h"
+#endif
+#ifdef PADDLE_WITH_HIP
+#include "paddle/fluid/platform/dynload/rocblas.h"
+#endif
 #include "paddle/fluid/platform/enforce.h"
+#include "paddle/fluid/platform/gpu_info.h"
 #include "paddle/fluid/platform/macros.h"
 
-#if CUDA_VERSION < 9000
+#if (defined PADDLE_WITH_CUDA) && CUDA_VERSION < 9000
 enum cublasMath_t { CUBLAS_DEFAULT_MATH = 0 };
 #endif
 
 namespace paddle {
 namespace platform {
+
+#ifdef PADDLE_WITH_CUDA
+typedef cublasHandle_t gpublasHandle_t;
+#endif
+
+#ifdef PADDLE_WITH_HIP
+typedef rocblas_handle gpublasHandle_t;
+#endif
 
 /*
  * Summary: Grid stride looping macro in CUDA kernel
@@ -77,7 +91,8 @@ namespace platform {
 
 class CublasHandleHolder {
  public:
-  CublasHandleHolder(cudaStream_t stream, cublasMath_t math_type) {
+#ifdef PADDLE_WITH_CUDA
+  CublasHandleHolder(gpuStream_t stream, cublasMath_t math_type) {
     PADDLE_RETRY_CUDA_SUCCESS(dynload::cublasCreate(&handle_));
     PADDLE_RETRY_CUDA_SUCCESS(dynload::cublasSetStream(handle_, stream));
 #if CUDA_VERSION >= 9000
@@ -92,9 +107,21 @@ class CublasHandleHolder {
     }
 #endif  // CUDA_VERSION >= 9000
   }
+#endif
+
+#ifdef PADDLE_WITH_HIP
+  explicit CublasHandleHolder(gpuStream_t stream) {
+    PADDLE_RETRY_CUDA_SUCCESS(dynload::rocblas_create_handle(&handle_));
+    PADDLE_RETRY_CUDA_SUCCESS(dynload::rocblas_set_stream(handle_, stream));
+  }
+#endif
 
   ~CublasHandleHolder() PADDLE_MAY_THROW {
+#ifdef PADDLE_WITH_CUDA
     PADDLE_RETRY_CUDA_SUCCESS(dynload::cublasDestroy(handle_));
+#elif defined(PADDLE_WITH_HIP)
+    PADDLE_RETRY_CUDA_SUCCESS(dynload::rocblas_destroy_handle(handle_));
+#endif
   }
 
   template <typename Callback>
@@ -106,7 +133,7 @@ class CublasHandleHolder {
  private:
   DISABLE_COPY_AND_ASSIGN(CublasHandleHolder);
 
-  cublasHandle_t handle_;
+  gpublasHandle_t handle_;
   mutable std::mutex mtx_;
 };
 

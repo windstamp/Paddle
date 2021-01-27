@@ -21,9 +21,9 @@ limitations under the License. */
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/fleet/fleet_wrapper.h"
 #include "paddle/fluid/framework/trainer.h"
-#if (defined PADDLE_WITH_CUDA || defined PADDLE_WITH_XPU) && \
+#if (defined PADDLE_WITH_CUDA || defined PADDLE_WITH_HIP || defined PADDLE_WITH_XPU) && \
     (defined PADDLE_WITH_PSLIB)
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/fluid/platform/cuda_device_guard.h"
 #endif
 namespace paddle {
@@ -51,13 +51,25 @@ void HeterBoxTrainer::Initialize(const TrainerDesc& trainer_desc,
 #ifdef PADDLE_WITH_CUDA
     platform::CUDAPlace place = platform::CUDAPlace(num);
     platform::CUDADeviceGuard guard(place.device);
-    cudaStream_t stream;
+    gpuStream_t stream;
     PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamCreate(&stream));
     copy_streams_.push_back(stream);
     places_.push_back(place);
-    cudaEvent_t event;
+    gpuEvent_t event;
     PADDLE_ENFORCE_CUDA_SUCCESS(
         cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+    events_.push_back(event);
+#endif
+#ifdef PADDLE_WITH_HIP
+    platform::CUDAPlace place = platform::CUDAPlace(num);
+    platform::CUDADeviceGuard guard(place.device);
+    hipStream_t stream;
+    PADDLE_ENFORCE_CUDA_SUCCESS(hipStreamCreate(&stream));
+    copy_streams_.push_back(stream);
+    places_.push_back(place);
+    hipEvent_t event;
+    PADDLE_ENFORCE_CUDA_SUCCESS(
+        hipEventCreateWithFlags(&event, hipEventDisableTiming));
     events_.push_back(event);
 #endif
 #ifdef PADDLE_WITH_XPU
@@ -140,8 +152,13 @@ void HeterBoxTrainer::InitTrainerEnv(const ProgramDesc& main_program,
         _ForEachDataType_(HeterMemcpyFunc);
       }
     }
+#ifdef PADDLE_WITH_HIP
+    PADDLE_ENFORCE_CUDA_SUCCESS(hipEventRecord(event, stream));
+    hipEventSynchronize(event);
+#else
     PADDLE_ENFORCE_CUDA_SUCCESS(cudaEventRecord(event, stream));
     cudaEventSynchronize(event);
+#endif
   }
   place_ = place;
 }
@@ -150,7 +167,7 @@ template <typename T>
 void HeterBoxTrainer::HeterMemCpy(LoDTensor* thread_tensor,
                                   LoDTensor* root_tensor,
                                   const paddle::platform::Place& thread_place,
-                                  cudaStream_t stream) {
+                                  gpuStream_t stream) {
   T* thread_ptr =
       thread_tensor->mutable_data<T>(root_tensor->dims(), thread_place);
   T* root_ptr = root_tensor->data<T>();
@@ -171,7 +188,7 @@ void HeterBoxTrainer::InitOtherEnv(const ProgramDesc& main_program) {
   for (size_t i = 0; i < places_.size(); ++i) {
     pull_dense_worker_->AddThreadScope(workers_[i]->GetThreadScope());
     pull_dense_worker_->AddPlace(places_[i]);
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     pull_dense_worker_->AddStream(copy_streams_[i]);
 #endif
   }
