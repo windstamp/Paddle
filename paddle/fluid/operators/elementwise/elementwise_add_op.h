@@ -37,6 +37,8 @@ namespace cub = hipcub;
 namespace paddle {
 namespace operators {
 
+constexpr int PADDLE_CUDA_NUM_THREADS = 512;
+
 template <typename DeviceContext, typename T>
 void default_elementwise_add(const framework::ExecutionContext &ctx,
                              const framework::Tensor *x,
@@ -182,6 +184,32 @@ __global__ void MatrixColReduce(const T *__restrict__ in, T *__restrict__ out,
     __syncthreads();
     if ((threadIdx.y == 0) && ((w) < width)) out[w] = sdata[0][threadIdx.x];
   }
+}
+
+template<typename T>
+__global__ void MatrixColReduceHIP(const T* __restrict__ input, T* __restrict__ output, size_t width, size_t height) {
+    __shared__ T sdata[PADDLE_CUDA_NUM_THREADS];
+
+    T x = static_cast<T>(0);
+    // Accumulate per thread partial sum
+    for(int i=threadIdx.x; i < height; i += blockDim.x) {
+      x += input[blockIdx.x + i * width];
+    }
+
+    // load thread partial sum into shared memory
+    sdata[threadIdx.x] = x;
+    __syncthreads();
+
+    for(int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
+        if(threadIdx.x < offset) {
+            sdata[threadIdx.x] += sdata[threadIdx.x + offset];
+        }
+        __syncthreads();
+    }
+    // thread 0 writes the final result
+    if(threadIdx.x == 0) {
+        output[blockIdx.x] = sdata[0];
+    }
 }
 
 #if !defined(PADDLE_WITH_HIP) && CUDA_VERSION >= 10000
@@ -393,8 +421,13 @@ class ElementwiseAddGradKernel : public ElemwiseGradKernel<T> {
 #endif
 
       if (width / height < 32) {
+#ifdef __HIPCC__
+        MatrixColReduceHIP<T><<<dim3(width), dim3(PADDLE_CUDA_NUM_THREADS), 0, stream>>>(
+            dout_data, out_data, width, height);
+#else
         MatrixColReduce<T, block_x, block_y><<<grids, blocks, 0, stream>>>(
             dout_data, out_data, width, height);
+#endif
       } else {
         size_t thread_nums = 1024;
         size_t block_nums = (width + thread_nums - 1) / thread_nums;
