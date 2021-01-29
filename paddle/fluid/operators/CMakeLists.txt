@@ -160,6 +160,7 @@ set(GLOB_OP_LIB ${OP_LIBRARY} CACHE INTERNAL "Global OP library")
 add_subdirectory(benchmark)
 
 cc_test(op_debug_string_test SRCS op_debug_string_test.cc DEPS elementwise_add_op)
+cc_test(test_conv_op SRCS conv_op_test.cc DEPS op_registry conv_op scope device_context enforce executor vol2col im2col depthwise_conv)
 
 if(WITH_MKLDNN)
 include(mkldnn/inplace_op_tests.cmake)

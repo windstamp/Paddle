@@ -29,7 +29,7 @@ DECLARE_int64(cudnn_exhaustive_search_times);
 namespace paddle {
 namespace operators {
 
-#if CUDNN_VERSION_MIN(6, 0, 5)
+#if !defined(PADDLE_WITH_HIP) && CUDNN_VERSION_MIN(6, 0, 5)
 static constexpr size_t kNUM_CUDNN_FWD_ALGS = CUDNN_CONVOLUTION_FWD_ALGO_COUNT;
 static constexpr size_t kNUM_CUDNN_BWD_FILTER_ALGS =
     CUDNN_CONVOLUTION_BWD_FILTER_ALGO_COUNT;
