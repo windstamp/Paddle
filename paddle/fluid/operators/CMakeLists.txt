@@ -161,6 +161,7 @@ add_subdirectory(benchmark)
 
 cc_test(op_debug_string_test SRCS op_debug_string_test.cc DEPS elementwise_add_op)
 cc_test(test_conv_op SRCS conv_op_test.cc DEPS op_registry conv_op scope device_context enforce executor vol2col im2col depthwise_conv)
+cc_test(test_pool_op SRCS pool_op_test.cc DEPS op_registry pool_op scope device_context enforce executor pooling)
 
 if(WITH_MKLDNN)
 include(mkldnn/inplace_op_tests.cmake)
