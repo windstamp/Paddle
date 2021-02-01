@@ -55,15 +55,13 @@ class SppKernel : public framework::OpKernel<T> {
       if (pooling_type == "max") {
         math::Pool2dFunctor<DeviceContext, math::MaxPool<T>, T> pool_forward;
         math::MaxPool<T> max_process;
-        pool_forward(context.template device_context<DeviceContext>(), *in_x,
-                     kernel_size, strides, paddings, max_process, true, false,
-                     &out_level);
+        pool_forward(context.template device_context<DeviceContext>(), *in_x, &out_level,
+                     kernel_size, strides, paddings, max_process, true, false);
       } else if (pooling_type == "avg") {
         math::Pool2dFunctor<DeviceContext, math::AvgPool<T>, T> pool_forward;
         math::AvgPool<T> avg_process;
-        pool_forward(context.template device_context<DeviceContext>(), *in_x,
-                     kernel_size, strides, paddings, avg_process, true, false,
-                     &out_level);
+        pool_forward(context.template device_context<DeviceContext>(), *in_x, &out_level,
+                     kernel_size, strides, paddings, avg_process, true, false);
       }
       // flatten pooling output shape
       int output_flatten_w = in_x->dims()[1] * bins * bins;
@@ -148,15 +146,15 @@ class SppGradKernel : public framework::OpKernel<T> {
       if (pooling_type == "max") {
         math::MaxPool2dGradFunctor<DeviceContext, T> pool2d_backward;
         pool2d_backward(context.template device_context<DeviceContext>(), *in_x,
-                        *&out_level, *&outgrad_level, kernel_size, strides,
-                        paddings, in_x_grad);
+                        *&out_level, *&outgrad_level, in_x_grad, kernel_size, strides,
+                        paddings);
       } else if (pooling_type == "avg") {
         math::Pool2dGradFunctor<DeviceContext, math::AvgPoolGrad<T>, T>
             pool_backward;
         math::AvgPoolGrad<T> avg_process;
         pool_backward(context.template device_context<DeviceContext>(), *in_x,
-                      *&out_level, *&outgrad_level, kernel_size, strides,
-                      paddings, avg_process, true, false, in_x_grad);
+                      *&out_level, *&outgrad_level, in_x_grad, kernel_size, strides,
+                      paddings, avg_process, true, false);
       }
     }
   }
