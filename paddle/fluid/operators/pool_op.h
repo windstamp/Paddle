@@ -173,16 +173,16 @@ class PoolKernel : public framework::OpKernel<T> {
               DeviceContext, paddle::operators::math::MaxPool<T>, T>
               pool2d_forward;
           paddle::operators::math::MaxPool<T> pool_process;
-          pool2d_forward(dev_ctx, *in_x, ksize, strides, paddings, data_format,
-                         pool_process, true, false, out);
+          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
+                         pool_process, true, false);
 
         } else if (pooling_type == "avg") {
           paddle::operators::math::Pool2dFunctor<
               DeviceContext, paddle::operators::math::AvgPool<T>, T>
               pool2d_forward;
           paddle::operators::math::AvgPool<T> pool_process;
-          pool2d_forward(dev_ctx, *in_x, ksize, strides, paddings, data_format,
-                         pool_process, exclusive, adaptive, out);
+          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
+                         pool_process, exclusive, adaptive);
         }
       } break;
       case 3: {
@@ -191,16 +191,16 @@ class PoolKernel : public framework::OpKernel<T> {
               DeviceContext, paddle::operators::math::MaxPool<T>, T>
               pool3d_forward;
           paddle::operators::math::MaxPool<T> pool_process;
-          pool3d_forward(dev_ctx, *in_x, ksize, strides, paddings, data_format,
-                         pool_process, true, false, out);
+          pool3d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
+                         pool_process, true, false);
 
         } else if (pooling_type == "avg") {
           paddle::operators::math::Pool3dFunctor<
               DeviceContext, paddle::operators::math::AvgPool<T>, T>
               pool3d_forward;
           paddle::operators::math::AvgPool<T> pool_process;
-          pool3d_forward(dev_ctx, *in_x, ksize, strides, paddings, data_format,
-                         pool_process, exclusive, adaptive, out);
+          pool3d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
+                         pool_process, exclusive, adaptive);
         }
       } break;
       default: {
@@ -234,6 +234,8 @@ class PoolGradKernel : public framework::OpKernel<T> {
 
     const bool channel_last = (data_format == "NHWC" || data_format == "NDHWC");
 
+    VLOG(3) << "======== adaptive = " << adaptive;
+
     // update paddings
     auto in_x_dims = in_x->dims();
     framework::DDim data_dims;
@@ -250,6 +252,8 @@ class PoolGradKernel : public framework::OpKernel<T> {
       }
     }
 
+    VLOG(3) << "======== adaptive = " << adaptive;
+
     if (global_pooling) {
       UpdateKsize(&ksize, data_dims);
     }
@@ -265,32 +269,34 @@ class PoolGradKernel : public framework::OpKernel<T> {
           if (pooling_type == "max") {
             paddle::operators::math::MaxPool2dGradFunctor<DeviceContext, T>
                 pool2d_backward;
-            pool2d_backward(dev_ctx, *in_x, *out, *out_grad, ksize, strides,
-                            paddings, data_format, in_x_grad);
+            pool2d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
+                            paddings, data_format);
           } else if (pooling_type == "avg") {
+            VLOG(3) << "======== adaptive = " << adaptive;
             paddle::operators::math::Pool2dGradFunctor<
                 DeviceContext, paddle::operators::math::AvgPoolGrad<T>, T>
                 pool2d_backward;
             paddle::operators::math::AvgPoolGrad<T> pool_process;
-            pool2d_backward(dev_ctx, *in_x, *out, *out_grad, ksize, strides,
+            VLOG(3) << "======== adaptive = " << adaptive;
+            pool2d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
                             paddings, data_format, pool_process, exclusive,
-                            adaptive, in_x_grad);
+                            adaptive);
           }
         } break;
         case 3: {
           if (pooling_type == "max") {
             paddle::operators::math::MaxPool3dGradFunctor<DeviceContext, T>
                 pool3d_backward;
-            pool3d_backward(dev_ctx, *in_x, *out, *out_grad, ksize, strides,
-                            paddings, data_format, in_x_grad);
+            pool3d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
+                            paddings, data_format);
           } else if (pooling_type == "avg") {
             paddle::operators::math::Pool3dGradFunctor<
                 DeviceContext, paddle::operators::math::AvgPoolGrad<T>, T>
                 pool3d_backward;
             paddle::operators::math::AvgPoolGrad<T> pool_process;
-            pool3d_backward(dev_ctx, *in_x, *out, *out_grad, ksize, strides,
+            pool3d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
                             paddings, data_format, pool_process, exclusive,
-                            adaptive, in_x_grad);
+                            adaptive);
           }
         } break;
         default: {

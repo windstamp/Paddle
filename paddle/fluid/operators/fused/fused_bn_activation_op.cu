@@ -12,11 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// HIP not support bn act fuse in MIOPEN
+#if defined(__NVCC__) || defined(__HIPCC__)
+
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
+
 #include <algorithm>
 #include <cfloat>
 #include <string>
 #include <vector>
-#include "cub/cub.cuh"
 #include "paddle/fluid/framework/data_layout.h"
 #include "paddle/fluid/operators/activation_op.h"
 #include "paddle/fluid/operators/fused/fused_bn_activation_op.h"
@@ -103,8 +113,8 @@ class FusedBatchNormActKernel<platform::CUDADeviceContext, T>
 
     // ------------------- cudnn descriptors ---------------------
     auto handle = dev_ctx.cudnn_handle();
-    cudnnTensorDescriptor_t data_desc_;
-    cudnnTensorDescriptor_t bn_param_desc_;
+    gpuDnnTensorDesc_t data_desc_;
+    gpuDnnTensorDesc_t bn_param_desc_;
     cudnnBatchNormMode_t mode_ = CUDNN_BATCHNORM_SPATIAL_PERSISTENT;
 
     PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -127,7 +137,7 @@ class FusedBatchNormActKernel<platform::CUDADeviceContext, T>
     double this_factor = 1. - momentum;
     cudnnBatchNormOps_t bnOps_ = CUDNN_BATCHNORM_OPS_BN_ACTIVATION;
     platform::ScopedActivationDescriptor scope_act_desc;
-    cudnnActivationDescriptor_t activation_desc_ =
+    gpuDnnActivationDesc_t activation_desc_ =
         scope_act_desc.descriptor<T>(act_type);
     size_t workspace_size = 0;
     size_t reserve_space_size = 0;
@@ -267,8 +277,8 @@ class FusedBatchNormActGradKernel<platform::CUDADeviceContext, T>
     std::vector<int> dims = {N, C, H, W, D};
     std::vector<int> strides = {H * W * C * D, 1, W * D * C, D * C, C};
     // ------------------- cudnn descriptors ---------------------
-    cudnnTensorDescriptor_t data_desc_;
-    cudnnTensorDescriptor_t bn_param_desc_;
+    gpuDnnTensorDesc_t data_desc_;
+    gpuDnnTensorDesc_t bn_param_desc_;
     cudnnBatchNormMode_t mode_ = CUDNN_BATCHNORM_SPATIAL_PERSISTENT;
 
     PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -302,7 +312,7 @@ class FusedBatchNormActGradKernel<platform::CUDADeviceContext, T>
     auto reserve_space_size = reserve_space->memory_size();
     cudnnBatchNormOps_t bnOps_ = CUDNN_BATCHNORM_OPS_BN_ACTIVATION;
     platform::ScopedActivationDescriptor scope_act_desc;
-    cudnnActivationDescriptor_t activation_desc_ =
+    gpuDnnActivationDesc_t activation_desc_ =
         scope_act_desc.descriptor<T>(act_type);
     // --------------- cudnn batchnorm workspace ---------------
     PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -382,3 +392,4 @@ REGISTER_OP_CUDA_KERNEL(
     ops::FusedBatchNormActGradKernel<plat::CUDADeviceContext, double>,
     ops::FusedBatchNormActGradKernel<plat::CUDADeviceContext, plat::float16>);
 #endif
+#endif // __NVCC__

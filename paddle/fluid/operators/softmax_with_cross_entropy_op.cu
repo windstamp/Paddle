@@ -8,7 +8,13 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
-#include <cub/cub.cuh>
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
 #include "paddle/fluid/operators/math/cross_entropy.h"
 #include "paddle/fluid/operators/math/math_function.h"
 #include "paddle/fluid/operators/softmax_with_cross_entropy_op.h"
@@ -376,7 +382,7 @@ static void SoftmaxWithCrossEntropyFusedKernel(const T* logits_data,
                                                const T* labels_data,
                                                T* softmax_data, T* loss_data,
                                                int n, int d, int axis_dim,
-                                               cudaStream_t stream) {
+                                               gpuStream_t stream) {
   constexpr int kMaxBlockDim = 512;
   int block_dim = axis_dim >= kMaxBlockDim
                       ? kMaxBlockDim
@@ -529,12 +535,15 @@ class SoftmaxWithCrossEntropyGradCUDAKernel : public framework::OpKernel<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-REGISTER_OP_CUDA_KERNEL(
-    softmax_with_cross_entropy, ops::SoftmaxWithCrossEntropyCUDAKernel<float>,
-    ops::SoftmaxWithCrossEntropyCUDAKernel<paddle::platform::float16>,
-    ops::SoftmaxWithCrossEntropyCUDAKernel<double>);
-REGISTER_OP_CUDA_KERNEL(
-    softmax_with_cross_entropy_grad,
+REGISTER_OP_CUDA_KERNEL(softmax_with_cross_entropy,
+    ops::SoftmaxWithCrossEntropyCUDAKernel<float>,
+#ifndef PADDLE_WITH_HIP
+    ops::SoftmaxWithCrossEntropyCUDAKernel<double>,
+#endif
+    ops::SoftmaxWithCrossEntropyCUDAKernel<paddle::platform::float16>);
+REGISTER_OP_CUDA_KERNEL(softmax_with_cross_entropy_grad,
     ops::SoftmaxWithCrossEntropyGradCUDAKernel<float>,
-    ops::SoftmaxWithCrossEntropyGradCUDAKernel<paddle::platform::float16>,
-    ops::SoftmaxWithCrossEntropyGradCUDAKernel<double>);
+#ifndef PADDLE_WITH_HIP
+    ops::SoftmaxWithCrossEntropyGradCUDAKernel<double>,
+#endif
+    ops::SoftmaxWithCrossEntropyGradCUDAKernel<paddle::platform::float16>);

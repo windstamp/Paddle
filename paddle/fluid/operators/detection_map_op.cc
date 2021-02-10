@@ -64,13 +64,13 @@ class DetectionMAPOp : public framework::OperatorWithKernel {
     }
 
     if (ctx->HasInput("PosCount")) {
-      PADDLE_ENFORCE(
-          ctx->HasInput("TruePos"),
+      PADDLE_ENFORCE_EQ(
+          ctx->HasInput("TruePos"), true,
           platform::errors::InvalidArgument(
               "Input(TruePos) of DetectionMAPOp should not be null when "
               "Input(PosCount) is not null."));
-      PADDLE_ENFORCE(
-          ctx->HasInput("FalsePos"),
+      PADDLE_ENFORCE_EQ(
+          ctx->HasInput("FalsePos"), true,
           platform::errors::InvalidArgument(
               "Input(FalsePos) of DetectionMAPOp should not be null when "
               "Input(PosCount) is not null."));

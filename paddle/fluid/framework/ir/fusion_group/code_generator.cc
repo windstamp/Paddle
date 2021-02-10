@@ -183,7 +183,11 @@ std::string CodeGenerator::Generate(
   for (const auto& type : dtypes) {
     all_dtype.insert(type.second);
   }
+// #ifdef PADDLE_WITH_HIP
+//   std::string predefined_cuda_functions = "#include <hip/hip_runtime.h>\n";
+// #else
   std::string predefined_cuda_functions = "";
+// #endif
   if (all_dtype.find("float") != all_dtype.end() &&
       all_dtype.find("__half") == all_dtype.end()) {
     predefined_cuda_functions += predefined_cuda_functions_fp32;

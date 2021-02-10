@@ -18,6 +18,7 @@ import unittest
 import numpy as np
 import paddle
 import paddle.fluid as fluid
+import paddle.fluid.core as core
 from op_test import OpTest
 from paddle.fluid import Program, program_guard
 from paddle.fluid.framework import convert_np_dtype_to_dtype_
@@ -63,7 +64,7 @@ class TestEmptyOp(OpTest):
 class TestEmptyOp2(TestEmptyOp):
     def init_config(self):
         shape = [500, 3]
-        dtype = 'float64'
+        dtype = 'float32' if core.is_compiled_with_rocm() else 'float64'
         dtype_inner = convert_np_dtype_to_dtype_(dtype)
         self.attrs = {'shape': shape, 'dtype': dtype_inner}
         self.inputs = {}

@@ -36,7 +36,7 @@ class InstanceNormPlugin : public PluginTensorRT {
   framework::Tensor scale_t;
   framework::Tensor bias_t;
   cudnnHandle_t handle_;
-  cudnnTensorDescriptor_t x_desc_, y_desc_, b_desc_;
+  gpuDnnTensorDesc_t x_desc_, y_desc_, b_desc_;
 
  protected:
   size_t getSerializationSize() override {

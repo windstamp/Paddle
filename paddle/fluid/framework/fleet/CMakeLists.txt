@@ -12,7 +12,7 @@ else()
     cc_library(ps_gpu_wrapper SRCS ps_gpu_wrapper.cc)
 endif(WITH_PSLIB)
 
-if(WITH_NCCL)
+if(WITH_NCCL OR WITH_RCCL)
     cc_library(nccl_wrapper SRCS nccl_wrapper.cc DEPS framework_proto variable_helper scope)
 endif()
 if(WITH_BOX_PS)

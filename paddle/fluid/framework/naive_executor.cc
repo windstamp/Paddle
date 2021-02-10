@@ -33,6 +33,7 @@ void NaiveExecutor::Prepare(Scope *scope, const ProgramDesc &program_desc,
 
   VLOG(3) << "NaiveExecutor init with scope " << scope;
   CreateOps(program_desc, block_id, with_feed_fetch_ops);
+  CreateVariables(program_desc, block_id, false, scope_);
 }
 
 void NaiveExecutor::Run() {

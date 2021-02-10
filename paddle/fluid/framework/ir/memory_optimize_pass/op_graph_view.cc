@@ -43,8 +43,8 @@ void OpGraphView::Build(const std::vector<details::OpHandleBase *> &ops) {
       }
     }
   }
-  PADDLE_ENFORCE(
-      preceding_ops_.size() == ops.size() && pending_ops_.size() == ops.size(),
+  PADDLE_ENFORCE_EQ(
+      preceding_ops_.size() == ops.size() && pending_ops_.size() == ops.size(), true,
       platform::errors::InvalidArgument("There are duplicate ops in graph."));
 }
 

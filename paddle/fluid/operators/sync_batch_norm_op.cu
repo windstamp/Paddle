@@ -93,12 +93,16 @@ namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 REGISTER_OP_CUDA_KERNEL(
     sync_batch_norm, ops::SyncBatchNormKernel<plat::CUDADeviceContext, float>,
+#ifndef PADDLE_WITH_HIP
     ops::SyncBatchNormKernel<plat::CUDADeviceContext, double>,
+#endif
     ops::SyncBatchNormKernel<plat::CUDADeviceContext, plat::float16>);
 REGISTER_OP_CUDA_KERNEL(
     sync_batch_norm_grad,
     ops::SyncBatchNormGradKernel<plat::CUDADeviceContext, float>,
+#ifndef PADDLE_WITH_HIP
     ops::SyncBatchNormGradKernel<plat::CUDADeviceContext, double>,
+#endif
     ops::SyncBatchNormGradKernel<plat::CUDADeviceContext, plat::float16>);
 
 // clang-format on

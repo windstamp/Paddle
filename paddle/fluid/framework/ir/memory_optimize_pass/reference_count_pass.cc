@@ -260,7 +260,7 @@ void ReferenceCountPass::ApplyImpl(ir::Graph *graph) const {
   auto &last_live_ops_of_vars =
       Get<std::vector<LastLiveOpsOfVars>>(kLastLiveOpsOfVars);
 
-  PADDLE_ENFORCE(last_live_ops_of_vars.empty() && var_infos.empty(),
+  PADDLE_ENFORCE_EQ(last_live_ops_of_vars.empty() && var_infos.empty(), true,
                  platform::errors::InvalidArgument(
                      "Last live ops and reference counts of vars should be "
                      "initialized at here."));

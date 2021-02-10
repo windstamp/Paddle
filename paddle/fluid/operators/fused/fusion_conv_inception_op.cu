@@ -12,6 +12,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
+// HIP not support cudnnConvolutionBiasActivationForward
+#if defined(__NVCC__) || defined(__HIPCC__)
+
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/operators/conv_cudnn_op_cache.h"
 #include "paddle/fluid/platform/cudnn_helper.h"
@@ -79,21 +82,21 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
     ScopedActivationDescriptor act_desc;
     ScopedTensorDescriptor out_pool_desc;
     ScopedTensorDescriptor input_desc;
-    cudnnPoolingDescriptor_t cudnn_pool_desc =
+    gpuDnnPoolingDesc_t cudnn_pool_desc =
         pool_desc.descriptor(pooling_mode, k3x3, k1x1, k1x1);
 
-    cudnnTensorDescriptor_t cudnn_input_desc = input_desc.descriptor<T>(
+    gpuDnnTensorDesc_t cudnn_input_desc = input_desc.descriptor<T>(
         layout, framework::vectorize<int>(input->dims()));
-    cudnnTensorDescriptor_t pool_out_desc = out_pool_desc.descriptor<T>(
+    gpuDnnTensorDesc_t pool_out_desc = out_pool_desc.descriptor<T>(
         layout, framework::vectorize<int>(input->dims()));
 
-    cudnnDataType_t cudnn_dtype = CudnnDataType<T>::type;
-    cudnnTensorDescriptor_t* out_desc = new cudnnTensorDescriptor_t[4];
-    cudnnFilterDescriptor_t* filter_desc = new cudnnFilterDescriptor_t[4];
-    cudnnTensorDescriptor_t* bias_desc = new cudnnTensorDescriptor_t[4];
-    cudnnTensorDescriptor_t* in_desc = new cudnnTensorDescriptor_t[4];
-    cudnnConvolutionDescriptor_t* conv_desc =
-        new cudnnConvolutionDescriptor_t[4];
+    gpuDnnDataType_t cudnn_dtype = CudnnDataType<T>::type;
+    gpuDnnTensorDesc_t* out_desc = new gpuDnnTensorDesc_t[4];
+    gpuDnnFilterDesc_t* filter_desc = new gpuDnnFilterDesc_t[4];
+    gpuDnnTensorDesc_t* bias_desc = new gpuDnnTensorDesc_t[4];
+    gpuDnnTensorDesc_t* in_desc = new gpuDnnTensorDesc_t[4];
+    gpuDnnConvolutionDesc_t* conv_desc =
+        new gpuDnnConvolutionDesc_t[4];
     for (int i = 0; i < 4; ++i) {
       PADDLE_ENFORCE_CUDA_SUCCESS(
           platform::dynload::cudnnCreateFilterDescriptor(&filter_desc[i]));
@@ -121,7 +124,7 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
     int w = in_dim[3];
     int oc = output->dims()[1];
 
-    cudnnDataType_t compute_type = (cudnn_dtype == CUDNN_DATA_DOUBLE)
+    gpuDnnDataType_t compute_type = (cudnn_dtype == CUDNN_DATA_DOUBLE)
                                        ? CUDNN_DATA_DOUBLE
                                        : CUDNN_DATA_FLOAT;
 
@@ -168,7 +171,7 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnSetConvolutionGroupCount(conv_desc[2], 2));
 
-    cudnnConvolutionFwdAlgo_t algo[4];
+    gpuDnnConvolutionFwdAlgo_t algo[4];
     auto handle = dev_ctx.cudnn_handle();
     size_t workspace_size_in_bytes = 0;  // final workspace to allocate.
 
@@ -190,8 +193,8 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
       int perf_count;
       int best_algo_idx = 0;
       size_t tmp_size = 0;
-      std::unique_ptr<cudnnConvolutionFwdAlgoPerf_t[]> perf_results(
-          new cudnnConvolutionFwdAlgoPerf_t[kNUM_CUDNN_FWD_ALGS]);
+      std::unique_ptr<gpuDnnConvolutionFwdAlgoPerf_t[]> perf_results(
+          new gpuDnnConvolutionFwdAlgoPerf_t[kNUM_CUDNN_FWD_ALGS]);
       PADDLE_ENFORCE_CUDA_SUCCESS(
           platform::dynload::cudnnGetConvolutionForwardAlgorithm_v7(
               handle, in_desc[i], filter_desc[i], conv_desc[i], out_desc[i],
@@ -205,7 +208,7 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
 
       workspace_size_in_bytes = std::max(workspace_size_in_bytes, tmp_size);
     }
-    cudnnActivationDescriptor_t cudnn_act_desc =
+    gpuDnnActivationDesc_t cudnn_act_desc =
         act_desc.descriptor<T>(activation);
 
     int oc0 = filter_dims[0][0];
@@ -250,8 +253,8 @@ class CUDNNConvInceptionFusionOpKernel : public framework::OpKernel<T> {
       workspace_handle.RunFunc(func, workspace_size_in_bytes);
     }
 
-    cudnnTensorDescriptor_t x_desc;
-    cudnnTensorDescriptor_t y_desc;
+    gpuDnnTensorDesc_t x_desc;
+    gpuDnnTensorDesc_t y_desc;
     PADDLE_ENFORCE_CUDA_SUCCESS(
         platform::dynload::cudnnCreateTensorDescriptor(&x_desc));
     PADDLE_ENFORCE_CUDA_SUCCESS(
@@ -294,3 +297,4 @@ REGISTER_OP_CUDA_KERNEL(conv2d_inception_fusion,
                         ops::CUDNNConvInceptionFusionOpKernel<float>,
                         ops::CUDNNConvInceptionFusionOpKernel<double>);
 #endif
+#endif // __NVCC__

@@ -51,15 +51,13 @@ class MaxPoolWithIndexKernel : public framework::OpKernel<T1> {
         paddle::operators::math::MaxPool2dWithIndexFunctor<DeviceContext, T1,
                                                            T2>
             pool2d_forward;
-        pool2d_forward(dev_ctx, *in_x, ksize, strides, paddings, adaptive, out,
-                       mask);
+        pool2d_forward(dev_ctx, *in_x, out, mask, ksize, strides, paddings, adaptive);
       } break;
       case 3: {
         paddle::operators::math::MaxPool3dWithIndexFunctor<DeviceContext, T1,
                                                            T2>
             pool3d_forward;
-        pool3d_forward(dev_ctx, *in_x, ksize, strides, paddings, adaptive, out,
-                       mask);
+        pool3d_forward(dev_ctx, *in_x, out, mask, ksize, strides, paddings, adaptive);
       } break;
       default: {
         PADDLE_THROW(platform::errors::InvalidArgument(
@@ -99,15 +97,15 @@ class MaxPoolWithIndexGradKernel : public framework::OpKernel<T1> {
           paddle::operators::math::MaxPool2dWithIndexGradFunctor<DeviceContext,
                                                                  T1, T2>
               pool2d_backward;
-          pool2d_backward(device_ctx, *out_grad, *mask, ksize, strides,
-                          paddings, adaptive, in_x_grad);
+          pool2d_backward(device_ctx, *out_grad, *mask, in_x_grad, ksize, strides,
+                          paddings, adaptive);
         } break;
         case 3: {
           paddle::operators::math::MaxPool3dWithIndexGradFunctor<DeviceContext,
                                                                  T1, T2>
               pool3d_backward;
-          pool3d_backward(device_ctx, *out_grad, *mask, ksize, strides,
-                          paddings, adaptive, in_x_grad);
+          pool3d_backward(device_ctx, *out_grad, *mask, in_x_grad, ksize, strides,
+                          paddings, adaptive);
         } break;
         default: {
           PADDLE_THROW(platform::errors::InvalidArgument(

@@ -17,6 +17,7 @@ limitations under the License. */
 #include <thrust/functional.h>
 #include <thrust/scatter.h>
 #include <thrust/unique.h>
+#include <thrust/sequence.h>
 #include <iostream>
 #include <vector>
 #include "paddle/fluid/framework/tensor_util.h"  // TensorToVector()

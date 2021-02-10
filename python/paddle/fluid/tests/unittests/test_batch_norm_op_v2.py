@@ -171,7 +171,11 @@ class TestBatchNorm(unittest.TestCase):
 class TestBatchNormChannelLast(unittest.TestCase):
     def setUp(self):
         self.original_dtyep = paddle.get_default_dtype()
-        paddle.set_default_dtype("float64")
+        # MIOPEN not support data type of double
+        if core.is_compiled_with_rocm():
+            paddle.set_default_dtype("float32")
+        else:
+            paddle.set_default_dtype("float64")
         self.places = [fluid.CPUPlace()]
         if core.is_compiled_with_cuda() and core.op_support_gpu("batch_norm"):
             self.places.append(fluid.CUDAPlace(0))
@@ -191,7 +195,7 @@ class TestBatchNormChannelLast(unittest.TestCase):
                 channel_first_x = paddle.transpose(x, [0, 2, 1])
                 y2 = net2(channel_first_x)
                 y2 = paddle.transpose(y2, [0, 2, 1])
-                self.assertEqual(np.allclose(y1.numpy(), y2.numpy()), True)
+                self.assertTrue(np.allclose(y1.numpy(), y2.numpy()))
 
     def test_2d(self):
         for p in self.places:

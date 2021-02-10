@@ -13,7 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #include <algorithm>
-#include <cub/cub.cuh>  // NOLINT
+
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
+
 #include "paddle/fluid/operators/math.h"
 #include "paddle/fluid/operators/sequence_ops/sequence_softmax_op.h"
 
@@ -158,12 +167,13 @@ struct SequenceSoftmaxGradFunctor<platform::CUDADeviceContext, T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-REGISTER_OP_CUDA_KERNEL(
-    sequence_softmax,
-    ops::SequenceSoftmaxKernel<paddle::platform::CUDADeviceContext, float>,
-    ops::SequenceSoftmaxKernel<paddle::platform::CUDADeviceContext, double>);
-REGISTER_OP_CUDA_KERNEL(
-    sequence_softmax_grad,
-    ops::SequenceSoftmaxGradKernel<paddle::platform::CUDADeviceContext, float>,
-    ops::SequenceSoftmaxGradKernel<paddle::platform::CUDADeviceContext,
-                                   double>);
+REGISTER_OP_CUDA_KERNEL(sequence_softmax,
+#ifndef PADDLE_WITH_HIP
+    ops::SequenceSoftmaxKernel<paddle::platform::CUDADeviceContext, double>,
+#endif
+    ops::SequenceSoftmaxKernel<paddle::platform::CUDADeviceContext, float>);
+REGISTER_OP_CUDA_KERNEL(sequence_softmax_grad,
+#ifndef PADDLE_WITH_HIP
+    ops::SequenceSoftmaxGradKernel<paddle::platform::CUDADeviceContext, double>,
+#endif
+    ops::SequenceSoftmaxGradKernel<paddle::platform::CUDADeviceContext,float>);

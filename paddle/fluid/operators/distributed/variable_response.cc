@@ -33,7 +33,7 @@ bool VariableResponse::ReadRaw(::google::protobuf::io::CodedInputStream* input,
   int total_written = 0;
 
   if (platform::is_gpu_place(place)) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     auto& gpu_dev_ctx =
         static_cast<const platform::CUDADeviceContext&>(dev_ctx);
     platform::CPUPlace cpu;
@@ -221,7 +221,7 @@ bool VariableResponse::ProcSerializedField(
       platform::errors::PreconditionNotMet("meta info should be got first!"));
 
   if (meta_.type() == sendrecv::NCCL_ID) {
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
     auto* var = scope_->FindVar(meta_.varname());
     if (var != nullptr) {
       ncclUniqueId* id = var->GetMutable<ncclUniqueId>();

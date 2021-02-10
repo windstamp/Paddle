@@ -95,6 +95,4 @@ class CompareOpKernel
       ::paddle::operators::CompareOpKernel<                               \
           ::paddle::platform::dev##DeviceContext, functor<int64_t>>,      \
       ::paddle::operators::CompareOpKernel<                               \
-          ::paddle::platform::dev##DeviceContext, functor<float>>,        \
-      ::paddle::operators::CompareOpKernel<                               \
-          ::paddle::platform::dev##DeviceContext, functor<double>>);
+          ::paddle::platform::dev##DeviceContext, functor<float>>);

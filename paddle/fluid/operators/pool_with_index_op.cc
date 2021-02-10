@@ -46,8 +46,8 @@ class MaxPoolWithIndexOp : public framework::OperatorWithKernel {
     std::vector<int> paddings = ctx->Attrs().Get<std::vector<int>>("paddings");
     bool adaptive = ctx->Attrs().Get<bool>("adaptive");
 
-    PADDLE_ENFORCE(
-        in_x_dims.size() == 4 || in_x_dims.size() == 5,
+    PADDLE_ENFORCE_EQ(
+        in_x_dims.size() == 4 || in_x_dims.size() == 5, true,
         platform::errors::InvalidArgument("Pooling intput should be 4-D or 5-D "
                                           "tensor but received %dD-Tensor",
                                           in_x_dims.size()));

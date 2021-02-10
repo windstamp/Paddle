@@ -80,7 +80,7 @@ class XPUGarbageCollector : public GarbageCollector {
 };
 #endif
 
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 class UnsafeFastGPUGarbageCollector : public GarbageCollector {
  public:
   UnsafeFastGPUGarbageCollector(const platform::CUDAPlace &place,
@@ -110,13 +110,21 @@ class StreamGarbageCollector : public GarbageCollector {
 
   void Wait() const override;
 
-  cudaStream_t stream() const;
+#ifdef PADDLE_WITH_HIP
+  hipStream_t stream() const;
+#else
+  gpuStream_t stream() const;
+#endif
 
  protected:
   void ClearCallback(const std::function<void()> &callback) override;
 
  private:
-  cudaStream_t stream_;
+#ifdef PADDLE_WITH_HIP
+  hipStream_t stream_;
+#else
+  gpuStream_t stream_;
+#endif
   std::unique_ptr<platform::StreamCallbackManager> callback_manager_;
 };
 

@@ -22,6 +22,16 @@ namespace paddle {
 namespace operators {
 namespace math {
 
+#ifdef __HIPCC__
+#define CUDA_PRINT(__FORMAT, ...)              \
+        printf("[tid.x=<%d> tid.y=<%d> bid.x=<%d> bid.y=<%d>]: " __FORMAT "\n", \
+        hipThreadIdx_x, hipThreadIdx_y, hipBlockIdx_x, hipBlockIdx_y, ##__VA_ARGS__);
+#else
+#define CUDA_PRINT(__FORMAT, ...)              \
+        printf("[tid.x=<%d> tid.y=<%d> bid.x=<%d> bid.y=<%d>]: " __FORMAT "\n", \
+        threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, ##__VA_ARGS__);
+#endif
+
 template <typename PoolProcess, typename T>
 __global__ void KernelPool2D(const int nthreads, const T* input_data,
                              const int channels, const int input_height,
@@ -93,8 +103,15 @@ __global__ void KernelPool2DGrad(
     const int stride_width, const int padding_height, const int padding_width,
     PoolProcess pool_process, bool exclusive, bool adaptive, T* input_grad,
     bool channel_last = false) {
+#ifdef __HIPCC__
+  for (int index = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x; index < nthreads;
+       index += hipBlockDim_x * hipGridDim_x) {
+#else
   for (int index = blockIdx.x * blockDim.x + threadIdx.x; index < nthreads;
        index += blockDim.x * gridDim.x) {
+#endif
+    CUDA_PRINT("index=%d channel_last=%d channels=%d input_width=%d input_height=%d padding_width=%d padding_height=%d", 
+                index, channel_last, channels, input_width, input_height, padding_width, padding_height);
     int w_offset, h_offset, offsetC, batch_idx;
     if (!channel_last) { /* NCHW */
       w_offset = index % input_width + padding_width;
@@ -108,6 +125,8 @@ __global__ void KernelPool2DGrad(
           (index / channels / input_width) % input_height + padding_height;
       batch_idx = index / channels / input_width / input_height;
     }
+    CUDA_PRINT("index=%d w_offset=%d h_offset=%d offsetC=%d batch_idx=%d", 
+                index, w_offset, h_offset, offsetC, batch_idx);
 
     int phstart, phend;
     int pwstart, pwend;
@@ -129,6 +148,10 @@ __global__ void KernelPool2DGrad(
     }
     T gradient = static_cast<T>(0.0);
     T input = input_data[index];
+    CUDA_PRINT("index=%d adaptive=%d phstart=%d phend=%d pwstart=%d pwend=%d", 
+                index, adaptive, phstart, phend, pwstart, pwend);
+    CUDA_PRINT("index=%d gradient=%1.1f input=%1.1f", 
+                index, static_cast<float>(gradient), static_cast<float>(input));  
 
     int output_stride;
     if (!channel_last) {
@@ -140,6 +163,8 @@ __global__ void KernelPool2DGrad(
 
     output_data += output_stride;
     output_grad += output_stride;
+    CUDA_PRINT("index=%d output_stride=%d output_data=%1.1f output_grad=%1.1f", 
+                index, output_stride, static_cast<float>(*output_data), static_cast<float>(*output_grad));
 
     for (int ph = phstart; ph < phend; ++ph) {
       for (int pw = pwstart; pw < pwend; ++pw) {
@@ -159,6 +184,8 @@ __global__ void KernelPool2DGrad(
           pool_size = exclusive ? (hend - hstart) * (wend - wstart)
                                 : ksize_height * ksize_width;
         }
+        CUDA_PRINT("index=%d ph=%d pw=%d pool_size=%d", 
+                    index, ph, pw, pool_size);
 
         int output_sub_idx = channel_last
                                  ? (ph * output_width + pw) * channels + offsetC
@@ -166,9 +193,14 @@ __global__ void KernelPool2DGrad(
         pool_process.compute(input, output_data[output_sub_idx],
                              output_grad[output_sub_idx],
                              static_cast<T>(1.0 / pool_size), &gradient);
+        CUDA_PRINT("index=%d output_sub_idx=%d input=%1.1f output_data[output_sub_idx]=%1.1f output_grad[output_sub_idx]=%1.1f gradient=%1.1f", 
+                    index, output_sub_idx, static_cast<float>(input), static_cast<float>(output_data[output_sub_idx]), 
+                    static_cast<float>(output_grad[output_sub_idx]), static_cast<float>(gradient));
       }
     }
     input_grad[index] = gradient;
+    CUDA_PRINT("index=%d input_grad[index]=%1.1f gradient=%1.1f", 
+                index, static_cast<float>(input_grad[index]), static_cast<float>(gradient));
   }
 }
 
@@ -238,7 +270,7 @@ void Pool2dDirectCUDAFunctor<PoolProcess, T>::operator()(
     const std::vector<int>& output_shape, const std::vector<int>& ksize,
     const std::vector<int>& strides, const std::vector<int>& paddings,
     PoolProcess pool_compute, bool exclusive, bool adaptive, T* output,
-    cudaStream_t stream) {
+    gpuStream_t stream) {
   const int batch_size = input_shape[0];
   const int input_channels = input_shape[1];
   const int input_height = input_shape[2];
@@ -258,27 +290,38 @@ void Pool2dDirectCUDAFunctor<PoolProcess, T>::operator()(
   dim3 threads(1024, 1);
   dim3 grid(blocks, 1);
 
-  KernelPool2D<PoolProcess, T><<<grid, threads, 0, stream>>>(
-      nthreads, input, input_channels, input_height, input_width, output_height,
-      output_width, ksize_height, ksize_width, stride_height, stride_width,
-      padding_height, padding_width, pool_compute, exclusive, adaptive, output);
+#ifdef __HIPCC__
+hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool2D<PoolProcess, T>), 
+  dim3(grid), dim3(threads), 0, stream, 
+  nthreads, input, input_channels, input_height, input_width, output_height,
+  output_width, ksize_height, ksize_width, stride_height, stride_width,
+  padding_height, padding_width, pool_compute, exclusive, adaptive, output);
+#else
+KernelPool2D<PoolProcess, T><<<grid, threads, 0, stream>>>(
+  nthreads, input, input_channels, input_height, input_width, output_height,
+  output_width, ksize_height, ksize_width, stride_height, stride_width,
+  padding_height, padding_width, pool_compute, exclusive, adaptive, output);
+#endif
 }
 
 /*
- * Tensors are in NCHW or NHWC format.
- * Ksize, strides are two elements. These two elements represent height
- * and width, respectively.
- * Paddings are four elements. These four elements represent height_up,
- * height_down, width_left and width_right, respectively.
- */
+* Tensors are in NCHW or NHWC format.
+* Ksize, strides are two elements. These two elements represent height
+* and width, respectively.
+* Paddings are four elements. These four elements represent height_up,
+* height_down, width_left and width_right, respectively.
+*/
 template <typename PoolProcess, typename T>
 class Pool2dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
  public:
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, PoolProcess pool_process,
-                  bool exclusive, bool adaptive, framework::Tensor* output) {
+                  const std::vector<int>& paddings, 
+                  PoolProcess pool_process,
+                  bool exclusive, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -297,22 +340,40 @@ class Pool2dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
     T* output_data = output->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * output_channels * output_height * output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
-    KernelPool2D<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
-        nthreads, input_data, input_channels, input_height, input_width,
-        output_height, output_width, ksize_height, ksize_width, stride_height,
-        stride_width, padding_height, padding_width, pool_process, exclusive,
-        adaptive, output_data);
+#ifdef __HIPCC__
+  hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool2D<PoolProcess, T>), 
+    dim3(grid), dim3(threads), 0, context.stream(), 
+    nthreads, input_data, input_channels, input_height, input_width,
+    output_height, output_width, ksize_height, ksize_width, stride_height,
+    stride_width, padding_height, padding_width, pool_process, exclusive,
+    adaptive, output_data);
+#else
+  KernelPool2D<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
+    nthreads, input_data, input_channels, input_height, input_width,
+    output_height, output_width, ksize_height, ksize_width, stride_height,
+    stride_width, padding_height, padding_width, pool_process, exclusive,
+    adaptive, output_data);
+#endif
   }
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::string data_format, PoolProcess pool_process,
-                  bool exclusive, bool adaptive, framework::Tensor* output) {
+                  bool exclusive, bool adaptive) {
     bool channel_last = (data_format == "NHWC");
     const int batch_size = input.dims()[0];
 
@@ -340,24 +401,39 @@ class Pool2dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
     T* output_data = output->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * output_channels * output_height * output_width;
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool2D<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, input_channels, input_height, input_width,
+        output_height, output_width, ksize_height, ksize_width, stride_height,
+        stride_width, padding_height, padding_width, pool_process, exclusive,
+        adaptive, output_data, channel_last);
+#else
     KernelPool2D<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, input_channels, input_height, input_width,
         output_height, output_width, ksize_height, ksize_width, stride_height,
         stride_width, padding_height, padding_width, pool_process, exclusive,
         adaptive, output_data, channel_last);
+#endif
   }
 };
 /*
- * Tensors are in NCHW or NHWC format.
- * Ksize, strides are two elements. These two elements represent height
- * and width, respectively.
- * Paddings are four elements. These four elements represent height_up,
- * height_down, width_left and width_right, respectively.
- */
+* Tensors are in NCHW or NHWC format.
+* Ksize, strides are two elements. These two elements represent height
+* and width, respectively.
+* Paddings are four elements. These four elements represent height_up,
+* height_down, width_left and width_right, respectively.
+*/
 template <typename PoolProcess, typename T>
 class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
  public:
@@ -365,11 +441,11 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   const framework::Tensor& input,
                   const framework::Tensor& output,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings, PoolProcess pool_process,
-                  bool exclusive, bool adaptive,
-                  framework::Tensor* input_grad) {
+                  bool exclusive, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -389,23 +465,44 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
     T* input_grad_data = input_grad->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * input_channels * input_height * input_width;
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool2DGrad<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_height, input_width, output_height, output_width, ksize_height,
+        ksize_width, stride_height, stride_width, padding_height, padding_width,
+        pool_process, exclusive, adaptive, input_grad_data);
+#else
     KernelPool2DGrad<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_height, input_width, output_height, output_width, ksize_height,
         ksize_width, stride_height, stride_width, padding_height, padding_width,
         pool_process, exclusive, adaptive, input_grad_data);
+#endif
   }
-  void operator()(
-      const platform::CUDADeviceContext& context,
-      const framework::Tensor& input, const framework::Tensor& output,
-      const framework::Tensor& output_grad, const std::vector<int>& ksize,
-      const std::vector<int>& strides, const std::vector<int>& paddings,
-      const std::string data_format, PoolProcess pool_process, bool exclusive,
-      bool adaptive, framework::Tensor* input_grad) {
+  void operator()(const platform::CUDADeviceContext& context,
+                  const framework::Tensor& input, 
+                  const framework::Tensor& output,
+                  const framework::Tensor& output_grad, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
+                  const std::vector<int>& strides, 
+                  const std::vector<int>& paddings,
+                  const std::string data_format, 
+                  PoolProcess pool_process, 
+                  bool exclusive, 
+                  bool adaptive) {
+    VLOG(3) << "======== adaptive = " << adaptive;
     bool channel_last = (data_format == "NHWC");
 
     const int batch_size = input.dims()[0];
@@ -436,25 +533,42 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
     T* input_grad_data = input_grad->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * input_channels * input_height * input_width;
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+    VLOG(3) << "======== adaptive = " << adaptive;
+
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool2DGrad<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_height, input_width, output_height, output_width, ksize_height,
+        ksize_width, stride_height, stride_width, padding_height, padding_width,
+        pool_process, exclusive, adaptive, input_grad_data, channel_last);
+#else
     KernelPool2DGrad<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_height, input_width, output_height, output_width, ksize_height,
         ksize_width, stride_height, stride_width, padding_height, padding_width,
         pool_process, exclusive, adaptive, input_grad_data, channel_last);
+#endif
   }
 };
 
 /*
- * Tensors are in NCHW or NHWC format.
- * Ksize, strides are two elements. These two elements represent height
- * and width, respectively.
- * Paddings are four elements. These four elements represent height_up,
- * height_down, width_left and width_right, respectively.
- */
+* Tensors are in NCHW or NHWC format.
+* Ksize, strides are two elements. These two elements represent height
+* and width, respectively.
+* Paddings are four elements. These four elements represent height_up,
+* height_down, width_left and width_right, respectively.
+*/
 template <typename T>
 class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
  public:
@@ -462,10 +576,10 @@ class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
                   const framework::Tensor& input,
                   const framework::Tensor& output,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings,
-                  framework::Tensor* input_grad) {
+                  const std::vector<int>& paddings) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -486,23 +600,41 @@ class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
     T* input_grad_data = input_grad->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * output_channels * output_height * output_width;
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool2DGrad<T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_height, input_width, output_height, output_width, ksize_height,
+        ksize_width, stride_height, stride_width, padding_height, padding_width,
+        input_grad_data);
+#else
     KernelMaxPool2DGrad<T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_height, input_width, output_height, output_width, ksize_height,
         ksize_width, stride_height, stride_width, padding_height, padding_width,
         input_grad_data);
+#endif
   }
-  void operator()(
-      const platform::CUDADeviceContext& context,
-      const framework::Tensor& input, const framework::Tensor& output,
-      const framework::Tensor& output_grad, const std::vector<int>& ksize,
-      const std::vector<int>& strides, const std::vector<int>& paddings,
-      const std::string data_format, framework::Tensor* input_grad) {
-    bool channel_last = (data_format == "NHWC");
+  void operator()(const platform::CUDADeviceContext& context,
+    const framework::Tensor& input, 
+    const framework::Tensor& output,
+    const framework::Tensor& output_grad, 
+    framework::Tensor* input_grad,
+    const std::vector<int>& ksize,
+    const std::vector<int>& strides, 
+    const std::vector<int>& paddings,
+    const std::string data_format) {
+bool channel_last = (data_format == "NHWC");
 
     const int batch_size = input.dims()[0];
 
@@ -531,15 +663,31 @@ class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
     T* input_grad_data = input_grad->mutable_data<T>(context.GetPlace());
 
     int nthreads = batch_size * output_channels * output_height * output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool2DGrad<T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_height, input_width, output_height, output_width, ksize_height,
+        ksize_width, stride_height, stride_width, padding_height, padding_width,
+        input_grad_data, channel_last);
+#else
     KernelMaxPool2DGrad<T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_height, input_width, output_height, output_width, ksize_height,
         ksize_width, stride_height, stride_width, padding_height, padding_width,
         input_grad_data, channel_last);
+#endif
   }
 };
 
@@ -575,21 +723,21 @@ template class Pool2dGradFunctor<platform::CUDADeviceContext,
                                  double>;
 
 template class Pool2dFunctor<
-    platform::CUDADeviceContext,
-    paddle::operators::math::MaxPool<paddle::platform::float16>,
-    paddle::platform::float16>;
+platform::CUDADeviceContext,
+paddle::operators::math::MaxPool<paddle::platform::float16>,
+paddle::platform::float16>;
 template class Pool2dFunctor<
-    platform::CUDADeviceContext,
-    paddle::operators::math::AvgPool<paddle::platform::float16>,
-    paddle::platform::float16>;
+platform::CUDADeviceContext,
+paddle::operators::math::AvgPool<paddle::platform::float16>,
+paddle::platform::float16>;
 template class Pool2dGradFunctor<
-    platform::CUDADeviceContext,
-    paddle::operators::math::MaxPoolGrad<paddle::platform::float16>,
-    paddle::platform::float16>;
+platform::CUDADeviceContext,
+paddle::operators::math::MaxPoolGrad<paddle::platform::float16>,
+paddle::platform::float16>;
 template class Pool2dGradFunctor<
-    platform::CUDADeviceContext,
-    paddle::operators::math::AvgPoolGrad<paddle::platform::float16>,
-    paddle::platform::float16>;
+platform::CUDADeviceContext,
+paddle::operators::math::AvgPoolGrad<paddle::platform::float16>,
+paddle::platform::float16>;
 
 template <typename PoolProcess, typename T>
 __global__ void KernelPool3D(
@@ -868,21 +1016,24 @@ __global__ void KernelMaxPool3DGrad(
 }
 
 /*
- * Tensors are in NCDHW or NDHWC format.
- * Ksize, strides, paddings are three elements. These three elements represent
- * depth, height and width, respectively.
- * Paddings are six elements. These six elements represent depth_forth,
- * depth_back,
- * height_up, height_down, width_left and width_right, respectively.
- */
+* Tensors are in NCDHW or NDHWC format.
+* Ksize, strides, paddings are three elements. These three elements represent
+* depth, height and width, respectively.
+* Paddings are six elements. These six elements represent depth_forth,
+* depth_back,
+* height_up, height_down, width_left and width_right, respectively.
+*/
 template <typename PoolProcess, class T>
 class Pool3dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
  public:
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, PoolProcess pool_process,
-                  bool exclusive, bool adaptive, framework::Tensor* output) {
+                  const std::vector<int>& paddings, 
+                  PoolProcess pool_process,
+                  bool exclusive, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_depth = input.dims()[2];
@@ -907,23 +1058,43 @@ class Pool3dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
 
     int nthreads = batch_size * output_channels * output_depth * output_height *
                    output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool3D<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, input_channels, input_depth, input_height,
+        input_width, output_depth, output_height, output_width, ksize_depth,
+        ksize_height, ksize_width, stride_depth, stride_height, stride_width,
+        padding_depth, padding_height, padding_width, pool_process, exclusive,
+        adaptive, output_data);
+#else
     KernelPool3D<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, input_channels, input_depth, input_height,
         input_width, output_depth, output_height, output_width, ksize_depth,
         ksize_height, ksize_width, stride_depth, stride_height, stride_width,
         padding_depth, padding_height, padding_width, pool_process, exclusive,
         adaptive, output_data);
+#endif
   }
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
-                  const std::string data_format, PoolProcess pool_process,
-                  bool exclusive, bool adaptive, framework::Tensor* output) {
+                  const std::string data_format, 
+                  PoolProcess pool_process,
+                  bool exclusive, bool adaptive) {
     bool channel_last = (data_format == "NDHWC");
     const int batch_size = input.dims()[0];
 
@@ -958,27 +1129,44 @@ class Pool3dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
 
     int nthreads = batch_size * output_channels * output_depth * output_height *
                    output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool3D<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, input_channels, input_depth, input_height,
+        input_width, output_depth, output_height, output_width, ksize_depth,
+        ksize_height, ksize_width, stride_depth, stride_height, stride_width,
+        padding_depth, padding_height, padding_width, pool_process, exclusive,
+        adaptive, output_data, channel_last);
+#else
     KernelPool3D<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, input_channels, input_depth, input_height,
         input_width, output_depth, output_height, output_width, ksize_depth,
         ksize_height, ksize_width, stride_depth, stride_height, stride_width,
         padding_depth, padding_height, padding_width, pool_process, exclusive,
         adaptive, output_data, channel_last);
+#endif
   }
 };
 
 /*
- * Tensors are in NCDHW or NDHWC format.
- * Ksize, strides, paddings are three elements. These three elements represent
- * depth, height and width, respectively.
- * Paddings are six elements. These six elements represent depth_forth,
- * depth_back,
- * height_up, height_down, width_left and width_right, respectively.
- */
+* Tensors are in NCDHW or NDHWC format.
+* Ksize, strides, paddings are three elements. These three elements represent
+* depth, height and width, respectively.
+* Paddings are six elements. These six elements represent depth_forth,
+* depth_back,
+* height_up, height_down, width_left and width_right, respectively.
+*/
 template <typename PoolProcess, class T>
 class Pool3dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
  public:
@@ -986,11 +1174,12 @@ class Pool3dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   const framework::Tensor& input,
                   const framework::Tensor& output,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, PoolProcess pool_process,
-                  bool exclusive, bool adaptive,
-                  framework::Tensor* input_grad) {
+                  const std::vector<int>& paddings, 
+                  PoolProcess pool_process,
+                  bool exclusive, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_depth = input.dims()[2];
@@ -1017,24 +1206,45 @@ class Pool3dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
 
     int nthreads =
         batch_size * input_channels * input_depth * input_height * input_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool3DGrad<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_depth, input_height, input_width, output_depth, output_height,
+        output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
+        stride_height, stride_width, padding_depth, padding_height,
+        padding_width, pool_process, exclusive, adaptive, input_grad_data);
+#else
     KernelPool3DGrad<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_depth, input_height, input_width, output_depth, output_height,
         output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
         stride_height, stride_width, padding_depth, padding_height,
         padding_width, pool_process, exclusive, adaptive, input_grad_data);
+#endif
   }
-  void operator()(
-      const platform::CUDADeviceContext& context,
-      const framework::Tensor& input, const framework::Tensor& output,
-      const framework::Tensor& output_grad, const std::vector<int>& ksize,
-      const std::vector<int>& strides, const std::vector<int>& paddings,
-      const std::string data_format, PoolProcess pool_process, bool exclusive,
-      bool adaptive, framework::Tensor* input_grad) {
+  void operator()(const platform::CUDADeviceContext& context,
+                  const framework::Tensor& input, 
+                  const framework::Tensor& output,
+                  const framework::Tensor& output_grad, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
+                  const std::vector<int>& strides, 
+                  const std::vector<int>& paddings,
+                  const std::string data_format, 
+                  PoolProcess pool_process, 
+                  bool exclusive, bool adaptive) {
     bool channel_last = (data_format == "NDHWC");
 
     const int batch_size = input.dims()[0];
@@ -1069,10 +1279,27 @@ class Pool3dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
 
     int nthreads =
         batch_size * input_channels * input_depth * input_height * input_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelPool3DGrad<PoolProcess, T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_depth, input_height, input_width, output_depth, output_height,
+        output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
+        stride_height, stride_width, padding_depth, padding_height,
+        padding_width, pool_process, exclusive, adaptive, input_grad_data,
+        channel_last);  // add channel_last
+#else
     KernelPool3DGrad<PoolProcess, T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_depth, input_height, input_width, output_depth, output_height,
@@ -1080,17 +1307,18 @@ class Pool3dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
         stride_height, stride_width, padding_depth, padding_height,
         padding_width, pool_process, exclusive, adaptive, input_grad_data,
         channel_last);  // add channel_last
+#endif
   }
 };
 
 /*
- * tensors are in NCDHW or NDHWC format.
- * Ksize, strides, paddings are three elements. These three elements represent
- * depth, height and width, respectively.
- * Paddings are six elements. These six elements represent depth_forth,
- * depth_back,
- * height_up, height_down, width_left and width_right, respectively.
- */
+* tensors are in NCDHW or NDHWC format.
+* Ksize, strides, paddings are three elements. These three elements represent
+* depth, height and width, respectively.
+* Paddings are six elements. These six elements represent depth_forth,
+* depth_back,
+* height_up, height_down, width_left and width_right, respectively.
+*/
 template <class T>
 class MaxPool3dGradFunctor<platform::CUDADeviceContext, T> {
  public:
@@ -1098,10 +1326,10 @@ class MaxPool3dGradFunctor<platform::CUDADeviceContext, T> {
                   const framework::Tensor& input,
                   const framework::Tensor& output,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings,
-                  framework::Tensor* input_grad) {
+                  const std::vector<int>& paddings) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_depth = input.dims()[2];
@@ -1128,23 +1356,42 @@ class MaxPool3dGradFunctor<platform::CUDADeviceContext, T> {
 
     int nthreads = batch_size * output_channels * output_depth * output_height *
                    output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
-
+#endif
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool3DGrad<T>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_depth, input_height, input_width, output_depth, output_height,
+        output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
+        stride_height, stride_width, padding_depth, padding_height,
+        padding_width, input_grad_data);
+#else
     KernelMaxPool3DGrad<T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_depth, input_height, input_width, output_depth, output_height,
         output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
         stride_height, stride_width, padding_depth, padding_height,
         padding_width, input_grad_data);
+#endif
   }
-  void operator()(
-      const platform::CUDADeviceContext& context,
-      const framework::Tensor& input, const framework::Tensor& output,
-      const framework::Tensor& output_grad, const std::vector<int>& ksize,
-      const std::vector<int>& strides, const std::vector<int>& paddings,
-      const std::string data_format, framework::Tensor* input_grad) {
+  void operator()(const platform::CUDADeviceContext& context,
+                  const framework::Tensor& input, 
+                  const framework::Tensor& output,
+                  const framework::Tensor& output_grad, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
+                  const std::vector<int>& strides, 
+                  const std::vector<int>& paddings,
+                  const std::string data_format) {
     bool channel_last = (data_format == "NDHWC");
     const int batch_size = input.dims()[0];
 
@@ -1179,16 +1426,31 @@ class MaxPool3dGradFunctor<platform::CUDADeviceContext, T> {
 
     int nthreads = batch_size * output_channels * output_depth * output_height *
                    output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
-
+#endif
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool3DGrad<T>), dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, output_data, output_grad_data, input_channels,
+        input_depth, input_height, input_width, output_depth, output_height,
+        output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
+        stride_height, stride_width, padding_depth, padding_height,
+        padding_width, input_grad_data, channel_last);  // add channel_last
+#else
     KernelMaxPool3DGrad<T><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, output_data, output_grad_data, input_channels,
         input_depth, input_height, input_width, output_depth, output_height,
         output_width, ksize_depth, ksize_height, ksize_width, stride_depth,
         stride_height, stride_width, padding_depth, padding_height,
         padding_width, input_grad_data, channel_last);  // add channel_last
+#endif
   }
 };
 
@@ -1348,10 +1610,12 @@ template <typename T1, typename T2>
 class MaxPool2dWithIndexFunctor<platform::CUDADeviceContext, T1, T2> {
  public:
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output, 
+                  framework::Tensor* mask,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, bool adaptive,
-                  framework::Tensor* output, framework::Tensor* mask) {
+                  const std::vector<int>& paddings, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -1371,15 +1635,30 @@ class MaxPool2dWithIndexFunctor<platform::CUDADeviceContext, T1, T2> {
     T2* mask_data = mask->mutable_data<T2>(context.GetPlace());
 
     int nthreads = batch_size * output_channels * output_height * output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool2dWithIdx<T1, T2>), dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, input_channels, input_height, input_width,
+        output_height, output_width, ksize_height, ksize_width, stride_height,
+        stride_width, padding_height, padding_width, adaptive, output_data,
+        mask_data);
+#else
     KernelMaxPool2dWithIdx<T1, T2><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, input_channels, input_height, input_width,
         output_height, output_width, ksize_height, ksize_width, stride_height,
         stride_width, padding_height, padding_width, adaptive, output_data,
         mask_data);
+#endif
   }
 };
 
@@ -1393,10 +1672,11 @@ class MaxPool2dWithIndexGradFunctor<platform::CUDADeviceContext, T1, T2> {
  public:
   void operator()(const platform::CUDADeviceContext& context,
                   const framework::Tensor& output_grad,
-                  const framework::Tensor& mask, const std::vector<int>& ksize,
+                  const framework::Tensor& mask, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, bool adaptive,
-                  framework::Tensor* input_grad) {
+                  const std::vector<int>& paddings, bool adaptive) {
     const int batch_size = input_grad->dims()[0];
     const int input_channels = input_grad->dims()[1];
     const int input_height = input_grad->dims()[2];
@@ -1415,15 +1695,31 @@ class MaxPool2dWithIndexGradFunctor<platform::CUDADeviceContext, T1, T2> {
     T1* input_grad_data = input_grad->mutable_data<T1>(context.GetPlace());
 
     int nthreads = batch_size * input_channels * input_height * input_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool2DWithIdxGrad<T1, T2>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, output_grad_data, mask_data, input_channels, input_height,
+        input_width, output_height, output_width, ksize_height, ksize_width,
+        stride_height, stride_width, padding_height, padding_width, adaptive,
+        input_grad_data);
+#else
     KernelMaxPool2DWithIdxGrad<T1, T2><<<grid, threads, 0, context.stream()>>>(
         nthreads, output_grad_data, mask_data, input_channels, input_height,
         input_width, output_height, output_width, ksize_height, ksize_width,
         stride_height, stride_width, padding_height, padding_width, adaptive,
         input_grad_data);
+#endif
   }
 };
 
@@ -1576,12 +1872,14 @@ __global__ void KernelMaxPool3DWithIdxGrad(
  */
 template <typename T1, typename T2>
 class MaxPool3dWithIndexFunctor<platform::CUDADeviceContext, T1, T2> {
- public:
+public:
   void operator()(const platform::CUDADeviceContext& context,
-                  const framework::Tensor& input, const std::vector<int>& ksize,
+                  const framework::Tensor& input, 
+                  framework::Tensor* output, 
+                  framework::Tensor* mask,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, bool adaptive,
-                  framework::Tensor* output, framework::Tensor* mask) {
+                  const std::vector<int>& paddings, bool adaptive) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_depth = input.dims()[2];
@@ -1607,16 +1905,33 @@ class MaxPool3dWithIndexFunctor<platform::CUDADeviceContext, T1, T2> {
 
     int nthreads = batch_size * output_channels * output_depth * output_height *
                    output_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool3DWithIdx<T1, T2>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, input_data, input_channels, input_depth, input_height,
+        input_width, output_depth, output_height, output_width, ksize_depth,
+        ksize_height, ksize_width, stride_depth, stride_height, stride_width,
+        padding_depth, padding_height, padding_width, adaptive, output_data,
+        mask_data);
+#else
     KernelMaxPool3DWithIdx<T1, T2><<<grid, threads, 0, context.stream()>>>(
         nthreads, input_data, input_channels, input_depth, input_height,
         input_width, output_depth, output_height, output_width, ksize_depth,
         ksize_height, ksize_width, stride_depth, stride_height, stride_width,
         padding_depth, padding_height, padding_width, adaptive, output_data,
         mask_data);
+#endif
   }
 };
 
@@ -1627,13 +1942,14 @@ class MaxPool3dWithIndexFunctor<platform::CUDADeviceContext, T1, T2> {
  */
 template <typename T1, typename T2>
 class MaxPool3dWithIndexGradFunctor<platform::CUDADeviceContext, T1, T2> {
- public:
+public:
   void operator()(const platform::CUDADeviceContext& context,
                   const framework::Tensor& output_grad,
-                  const framework::Tensor& mask, const std::vector<int>& ksize,
+                  const framework::Tensor& mask, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, bool adaptive,
-                  framework::Tensor* input_grad) {
+                  const std::vector<int>& paddings, bool adaptive) {
     const int batch_size = input_grad->dims()[0];
     const int input_channels = input_grad->dims()[1];
     const int input_depth = input_grad->dims()[2];
@@ -1658,16 +1974,33 @@ class MaxPool3dWithIndexGradFunctor<platform::CUDADeviceContext, T1, T2> {
 
     int nthreads =
         batch_size * input_channels * input_depth * input_height * input_width;
+
+#ifdef __HIPCC__
+    int blocks = (nthreads + 256 - 1) / 256;
+    dim3 threads(256, 1);
+    dim3 grid(blocks, 1);
+#else
     int blocks = (nthreads + 1024 - 1) / 1024;
     dim3 threads(1024, 1);
     dim3 grid(blocks, 1);
+#endif
 
+#ifdef __HIPCC__
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(KernelMaxPool3DWithIdxGrad<T1, T2>), 
+        dim3(grid), dim3(threads), 0, context.stream(), 
+        nthreads, output_grad_data, mask_data, input_channels, input_depth,
+        input_height, input_width, output_depth, output_height, output_width,
+        ksize_depth, ksize_height, ksize_width, stride_depth, stride_height,
+        stride_width, padding_depth, padding_height, padding_width, adaptive,
+        input_grad_data);
+#else
     KernelMaxPool3DWithIdxGrad<T1, T2><<<grid, threads, 0, context.stream()>>>(
         nthreads, output_grad_data, mask_data, input_channels, input_depth,
         input_height, input_width, output_depth, output_height, output_width,
         ksize_depth, ksize_height, ksize_width, stride_depth, stride_height,
         stride_width, padding_depth, padding_height, padding_width, adaptive,
         input_grad_data);
+#endif
   }
 };
 

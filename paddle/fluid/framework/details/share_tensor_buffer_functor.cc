@@ -100,7 +100,7 @@ void ShareTensorBufferFunctor::AddReuseVarPair(
 }
 
 void ShareTensorBufferFunctor::CallOnce() {
-  PADDLE_ENFORCE(in_out_vars_.empty(),
+  PADDLE_ENFORCE_EQ(in_out_vars_.empty(), true,
                  platform::errors::InvalidArgument(
                      "The input-output variable pairs to be "
                      "inplaced should be initialized here."));
