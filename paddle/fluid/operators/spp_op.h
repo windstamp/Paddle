@@ -154,7 +154,7 @@ class SppGradKernel : public framework::OpKernel<T> {
         math::AvgPoolGrad<T> avg_process;
         pool_backward(context.template device_context<DeviceContext>(), *in_x,
                       *&out_level, *&outgrad_level, in_x_grad, kernel_size, strides,
-                      paddings, avg_process, true, false);
+                      paddings, avg_process, true, false, false);
       }
     }
   }

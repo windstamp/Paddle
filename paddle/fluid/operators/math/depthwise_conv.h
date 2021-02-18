@@ -32,11 +32,13 @@ template <typename DeviceContext, typename T,
           bool fuse_relu_before_conv = false>
 class DepthwiseConvFunctor {
  public:
-  void operator()(const DeviceContext& context, const framework::Tensor& input,
+  void operator()(const DeviceContext& context, 
+                  const framework::Tensor& input,
                   const framework::Tensor& filter,
+                  framework::Tensor* output,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
-                  const std::vector<int>& dilations, framework::Tensor* output,
+                  const std::vector<int>& dilations, 
                   const DataLayout data_layout = DataLayout::kNCHW);
 };
 
@@ -44,13 +46,14 @@ template <typename DeviceContext, typename T,
           bool fuse_relu_before_conv = false>
 class DepthwiseConvInputGradFunctor {
  public:
-  void operator()(const DeviceContext& context, const framework::Tensor& input,
+  void operator()(const DeviceContext& context, 
+                  const framework::Tensor& input,
                   const framework::Tensor& filter,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::vector<int>& dilations,
-                  framework::Tensor* input_grad,
                   const DataLayout data_layout = DataLayout::kNCHW);
 };
 
@@ -58,12 +61,13 @@ template <typename DeviceContext, typename T,
           bool fuse_relu_before_conv = false>
 class DepthwiseConvFilterGradFunctor {
  public:
-  void operator()(const DeviceContext& context, const framework::Tensor& input,
+  void operator()(const DeviceContext& context, 
+                  const framework::Tensor& input,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* filter_grad,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::vector<int>& dilations,
-                  framework::Tensor* filter_grad,
                   const DataLayout data_layout = DataLayout::kNCHW);
 };
 

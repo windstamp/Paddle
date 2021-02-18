@@ -28,19 +28,29 @@ namespace paddle {
 namespace operators {
 namespace math {
 
+#ifdef __HIPCC__
+#define CUDA_PRINT(__FORMAT, ...)              \
+        printf("[tid.x=<%d> tid.y=<%d> bid.x=<%d> bid.y=<%d>]: " __FORMAT "\n", \
+        hipThreadIdx_x, hipThreadIdx_y, hipBlockIdx_x, hipBlockIdx_y, ##__VA_ARGS__);
+#else
+#define CUDA_PRINT(__FORMAT, ...)              \
+        printf("[tid.x=<%d> tid.y=<%d> bid.x=<%d> bid.y=<%d>]: " __FORMAT "\n", \
+        threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, ##__VA_ARGS__);
+#endif
+
 template <typename T>
 __device__ __inline__ void CudaAtomicAddWithWarp(T* sum, T value) {
-#ifdef PADDLE_WITH_CUDA
-  typedef cub::WarpReduce<T> WarpReduce;
-#else
+#ifdef __HIPCC__
   typedef hipcub::WarpReduce<T> WarpReduce;
-#endif
-  typename WarpReduce::TempStorage temp_storage;
-  value = WarpReduce(temp_storage).Sum(value);
-#ifdef PADDLE_WITH_CUDA
-  if (cub::LaneId() == 0) platform::CudaAtomicAdd(sum, value);
 #else
+  typedef cub::WarpReduce<T> WarpReduce;
+#endif
+  __shared__ typename WarpReduce::TempStorage temp_storage;
+  value = WarpReduce(temp_storage).Sum(value);
+#ifdef __HIPCC__
   if (hipcub::LaneId() == 0) platform::CudaAtomicAdd(sum, value);
+#else
+  if (cub::LaneId() == 0) platform::CudaAtomicAdd(sum, value);
 #endif
 }
 
@@ -484,6 +494,20 @@ __device__ __inline__ void KernelDepthwiseConvFilterGrad(
 
   int gbid = ((blockIdx.z * gridDim.y) + blockIdx.y) * gridDim.x + blockIdx.x;
 
+  // CUDA_PRINT("gbid=%d num=%d output_channels=%d output_height=%d output_width=%d"
+  //            "input_channels=%d input_height=%d input_width=%d"
+  //            "filter_multiplier=%d filter_height=%d filter_width=%d"
+  //            "stride_height=%d stride_width=%d padding_height=%d padding_width=%d"
+  //            "dilate_height=%d dilate_width=%d", 
+  //             gbid, num, output_channels, output_height, output_width,
+  //             input_channels, input_height, input_width,
+  //             filter_multiplier, filter_height, filter_width,
+  //             stride_height, stride_width, padding_height, padding_width,
+  //             dilate_height, dilate_width);
+
+  // CUDA_PRINT("gbid=%d input_data[0]=%5.1f", gbid, input_data[0]);
+  // CUDA_PRINT("gbid=%d output_grad_data[0]=%5.1f", gbid, output_grad_data[0]);
+
   for (int image_w = threadIdx.x; image_w < output_width;
        image_w += blockDim.x) {
     for (int bid = 0; bid < num; bid++) {
@@ -495,6 +519,10 @@ __device__ __inline__ void KernelDepthwiseConvFilterGrad(
 
         int image_hk = image_h * stride_height + kernel_h;
         int image_wk = image_w * stride_width + kernel_w;
+
+        // CUDA_PRINT("gbid=%d image_w=%d image_h=%d kernel_id=%d kernel_h=%d kernel_w=%d image_hk=%d image_wk=%d", 
+        //            gbid, image_w, image_h, kernel_id, kernel_h, kernel_w, image_hk, image_wk);
+
         if (image_hk < 0 || image_hk >= input_height) continue;
         if (image_wk < 0 || image_wk >= input_width) continue;
 #define gaid(N, C, H, W) \
@@ -515,6 +543,8 @@ __device__ __inline__ void KernelDepthwiseConvFilterGrad(
           } else {
             s += output_grad_data[gaid(bid, kernel_id, image_h, image_w)] *
                  input_data[input_id];
+            // CUDA_PRINT("gbid=%d input_data[input_id]=%5.1f output_grad_data[gaid(bid, kernel_id, image_h, image_w)]=%5.1f s=%5.1f",
+            //             gbid,  input_data[input_id], output_grad_data[gaid(bid, kernel_id, image_h, image_w)], s);
           }
         } else {
           input_id =
@@ -534,7 +564,9 @@ __device__ __inline__ void KernelDepthwiseConvFilterGrad(
       }
     }
   }
+  // CUDA_PRINT("gbid=%d s=%2.1f", gbid, s);
   CudaAtomicAddWithWarp(&filter_grad_data[gbid], s);
+  CUDA_PRINT("gbid=%d s=%2.1f filter_grad_data[gbid]=%2.1f", gbid, s, filter_grad_data[gbid]);
 }
 
 template <typename T, int c_filter_multiplier, bool fuse_relu_before_conv>
@@ -575,9 +607,10 @@ class DepthwiseConvFunctor<platform::CUDADeviceContext, T,
   void operator()(const platform::CUDADeviceContext& context,
                   const framework::Tensor& input,
                   const framework::Tensor& filter,
+                  framework::Tensor* output,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
-                  const std::vector<int>& dilations, framework::Tensor* output,
+                  const std::vector<int>& dilations, 
                   const DataLayout data_layout = DataLayout::kNCHW) {
     const int batch_size = input.dims()[0];
     const int input_channels =
@@ -670,10 +703,10 @@ class DepthwiseConvInputGradFunctor<platform::CUDADeviceContext, T,
                   const framework::Tensor& input,
                   const framework::Tensor& filter,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* input_grad,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::vector<int>& dilations,
-                  framework::Tensor* input_grad,
                   const DataLayout data_layout = DataLayout::kNCHW) {
     const int batch_size = input.dims()[0];
     const int input_channels =
@@ -714,6 +747,26 @@ class DepthwiseConvInputGradFunctor<platform::CUDADeviceContext, T,
     dim3 threads(std::min(input_width, thread), blocks, 1);
     dim3 grid(input_channels, batch_size, 1);
     int filter_multiplier = output_channels / input_channels;
+
+    VLOG(3) << "batch_size=" << batch_size;
+    VLOG(3) << "input_channels=" << input_channels;
+    VLOG(3) << "input_height=" << input_height;
+    VLOG(3) << "input_width=" << input_width;
+    VLOG(3) << "output_channels=" << output_channels;
+    VLOG(3) << "output_height=" << output_height;
+    VLOG(3) << "output_width=" << output_width;
+    VLOG(3) << "ksize_height=" << ksize_height;
+    VLOG(3) << "ksize_width=" << ksize_width;
+    VLOG(3) << "stride_height=" << stride_height;
+    VLOG(3) << "stride_width=" << stride_width;
+    VLOG(3) << "padding_height=" << padding_height;
+    VLOG(3) << "padding_width=" << padding_width;
+    VLOG(3) << "dilate_height=" << dilate_height;
+    VLOG(3) << "dilate_width=" << dilate_width;
+    VLOG(3) << "thread=" << thread;
+    VLOG(3) << "blocks=" << blocks;
+    VLOG(3) << "filter_multiplier=" << filter_multiplier;
+    VLOG(3) << "fuse_relu_before_conv=" << fuse_relu_before_conv;
 
 #define check_case(c_filter_multiplier, c_stride, c_filter)             \
   if (c_filter_multiplier == 0 ||                                       \
@@ -758,10 +811,10 @@ class DepthwiseConvFilterGradFunctor<platform::CUDADeviceContext, T,
   void operator()(const platform::CUDADeviceContext& context,
                   const framework::Tensor& input,
                   const framework::Tensor& output_grad,
+                  framework::Tensor* filter_grad,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::vector<int>& dilations,
-                  framework::Tensor* filter_grad,
                   const DataLayout data_layout = DataLayout::kNCHW) {
     const int batch_size = input.dims()[0];
     const int input_channels =
@@ -802,6 +855,26 @@ class DepthwiseConvFilterGradFunctor<platform::CUDADeviceContext, T,
     dim3 grid(ksize_width, ksize_height, output_channels);
     dim3 threads(std::min(output_width, block_size), crop_output_height, 1);
     int filter_multiplier = output_channels / input_channels;
+
+    VLOG(3) << "batch_size=" << batch_size;
+    VLOG(3) << "input_channels=" << input_channels;
+    VLOG(3) << "input_height=" << input_height;
+    VLOG(3) << "input_width=" << input_width;
+    VLOG(3) << "output_channels=" << output_channels;
+    VLOG(3) << "output_height=" << output_height;
+    VLOG(3) << "output_width=" << output_width;
+    VLOG(3) << "ksize_height=" << ksize_height;
+    VLOG(3) << "ksize_width=" << ksize_width;
+    VLOG(3) << "stride_height=" << stride_height;
+    VLOG(3) << "stride_width=" << stride_width;
+    VLOG(3) << "padding_height=" << padding_height;
+    VLOG(3) << "padding_width=" << padding_width;
+    VLOG(3) << "dilate_height=" << dilate_height;
+    VLOG(3) << "dilate_width=" << dilate_width;
+    VLOG(3) << "block_size=" << block_size;
+    VLOG(3) << "crop_output_height=" << crop_output_height;
+    VLOG(3) << "filter_multiplier=" << filter_multiplier;
+    VLOG(3) << "fuse_relu_before_conv=" << fuse_relu_before_conv;
 
 #define check_case(c_filter_multiplier)                                       \
   if (c_filter_multiplier == 0 || c_filter_multiplier == filter_multiplier) { \

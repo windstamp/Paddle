@@ -27,6 +27,18 @@ namespace operators {
 
 using Tensor = framework::Tensor;
 
+template <typename T>
+static void print_tensor_data(const platform::DeviceContext& ctx,
+                             const Tensor * tensor,
+                             const char * name) {
+  size_t numel = static_cast<size_t>(framework::product(tensor->dims()));
+  std::vector<T> data(numel);
+  framework::TensorToVector(*tensor, ctx, &data);
+  for (size_t i = 0; i < numel; ++i) {
+    printf("%s[%02d] = %5.1f\n", name, i, data[i]);
+  }
+}
+
 class PoolOp : public framework::OperatorWithKernel {
  public:
   using framework::OperatorWithKernel::OperatorWithKernel;
@@ -221,20 +233,24 @@ class PoolGradKernel : public framework::OpKernel<T> {
         context.Input<Tensor>(framework::GradVarName("Out"));
     Tensor* in_x_grad = context.Output<Tensor>(framework::GradVarName("X"));
 
-    std::string pooling_type = context.Attr<std::string>("pooling_type");
+    const std::string pooling_type = context.Attr<std::string>("pooling_type");
     std::vector<int> ksize = context.Attr<std::vector<int>>("ksize");
     std::vector<int> strides = context.Attr<std::vector<int>>("strides");
     std::vector<int> paddings = context.Attr<std::vector<int>>("paddings");
-    bool exclusive = context.Attr<bool>("exclusive");
-    bool adaptive = context.Attr<bool>("adaptive");
-    std::string data_format = context.Attr<std::string>("data_format");
-    bool global_pooling = context.Attr<bool>("global_pooling");
-    std::string padding_algorithm =
+    const bool exclusive = context.Attr<bool>("exclusive");
+    const bool adaptive = context.Attr<bool>("adaptive");
+    const std::string data_format = context.Attr<std::string>("data_format");
+    const bool global_pooling = context.Attr<bool>("global_pooling");
+    const std::string padding_algorithm =
         context.Attr<std::string>("padding_algorithm");
 
     const bool channel_last = (data_format == "NHWC" || data_format == "NDHWC");
+    const bool is_hipcc = false;
 
     VLOG(3) << "======== adaptive = " << adaptive;
+    print_tensor_data<T>(context.device_context(), in_x, "input");
+    print_tensor_data<T>(context.device_context(), out, "output");
+    print_tensor_data<T>(context.device_context(), out_grad, "out_grad");
 
     // update paddings
     auto in_x_dims = in_x->dims();
@@ -272,15 +288,18 @@ class PoolGradKernel : public framework::OpKernel<T> {
             pool2d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
                             paddings, data_format);
           } else if (pooling_type == "avg") {
-            VLOG(3) << "======== adaptive = " << adaptive;
             paddle::operators::math::Pool2dGradFunctor<
                 DeviceContext, paddle::operators::math::AvgPoolGrad<T>, T>
                 pool2d_backward;
             paddle::operators::math::AvgPoolGrad<T> pool_process;
             VLOG(3) << "======== adaptive = " << adaptive;
+            VLOG(3) << "======== is_hipcc = " << is_hipcc;
             pool2d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
                             paddings, data_format, pool_process, exclusive,
-                            adaptive);
+                            is_hipcc, adaptive);
+            VLOG(3) << "======== adaptive = " << adaptive;
+            VLOG(3) << "======== is_hipcc = " << is_hipcc;
+            print_tensor_data<T>(context.device_context(), in_x_grad, "in_x_grad");
           }
         } break;
         case 3: {

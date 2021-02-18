@@ -632,9 +632,9 @@ class DepthwiseConvTransposeKernel : public framework::OpKernel<T> {
     math::DepthwiseConvInputGradFunctor<DeviceContext, T>
         depthwiseConvInputGrad;
     depthwiseConvInputGrad(
-        dev_ctx, *output, filter, *input, strides,
+        dev_ctx, *output, filter, *input, output, strides,
         std::vector<int>{paddings[0], paddings[2], paddings[1], paddings[3]},
-        dilations, output, data_layout);
+        dilations, data_layout);
   }
 };
 
@@ -682,9 +682,9 @@ class DepthwiseConvTransposeGradKernel : public framework::OpKernel<T> {
     if (input_grad) {
       math::DepthwiseConvFunctor<DeviceContext, T> depthwiseConv;
       depthwiseConv(
-          dev_ctx, *output_grad, filter, strides, paddings,
+          dev_ctx, *output_grad, filter, input_grad, strides, paddings,
           std::vector<int>{paddings[0], paddings[2], paddings[1], paddings[3]},
-          input_grad, data_layout);
+          data_layout);
     }
 
     if (filter_grad) {
@@ -695,9 +695,9 @@ class DepthwiseConvTransposeGradKernel : public framework::OpKernel<T> {
       math::DepthwiseConvFilterGradFunctor<DeviceContext, T>
           depthwiseConvFilterGrad;
       depthwiseConvFilterGrad(
-          dev_ctx, *output_grad, *input, strides,
+          dev_ctx, *output_grad, *input, filter_grad, strides,
           std::vector<int>{paddings[0], paddings[2], paddings[1], paddings[3]},
-          dilations, filter_grad, data_layout);
+          dilations, data_layout);
     }
   }
 };

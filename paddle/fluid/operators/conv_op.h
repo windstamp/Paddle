@@ -944,12 +944,12 @@ class DepthwiseConvKernel : public framework::OpKernel<T> {
 
     if (fuse_relu) {
       math::DepthwiseConvFunctor<DeviceContext, T, true> depthwiseConv;
-      depthwiseConv(dev_ctx, transformed_input, filter, strides, paddings,
-                    dilations, &transformed_output);
+      depthwiseConv(dev_ctx, transformed_input, filter, &transformed_output, strides, paddings,
+                    dilations);
     } else {
       math::DepthwiseConvFunctor<DeviceContext, T, false> depthwiseConv;
-      depthwiseConv(dev_ctx, transformed_input, filter, strides, paddings,
-                    dilations, &transformed_output);
+      depthwiseConv(dev_ctx, transformed_input, filter, &transformed_output, strides, paddings,
+                    dilations);
     }
     if (channel_last) {
       TransToChannelLast<DeviceContext, T>(context, &transformed_output,
@@ -1040,14 +1040,14 @@ class DepthwiseConvGradKernel : public framework::OpKernel<T> {
         math::DepthwiseConvInputGradFunctor<DeviceContext, T, true>
             depthwiseConvInputGrad;
         depthwiseConvInputGrad(dev_ctx, transformed_input, filter,
-                               transformed_output_grad, strides, paddings,
-                               dilations, &transformed_input_grad);
+                               transformed_output_grad, &transformed_input_grad, strides, paddings,
+                               dilations);
       } else {
         math::DepthwiseConvInputGradFunctor<DeviceContext, T, false>
             depthwiseConvInputGrad;
         depthwiseConvInputGrad(dev_ctx, transformed_input, filter,
-                               transformed_output_grad, strides, paddings,
-                               dilations, &transformed_input_grad);
+                               transformed_output_grad, &transformed_input_grad, strides, paddings,
+                               dilations);
       }
       if (channel_last) {
         TransToChannelLast<DeviceContext, T>(context, &transformed_input_grad,
@@ -1062,14 +1062,14 @@ class DepthwiseConvGradKernel : public framework::OpKernel<T> {
         math::DepthwiseConvFilterGradFunctor<DeviceContext, T, true>
             depthwiseConvFilterGrad;
         depthwiseConvFilterGrad(dev_ctx, transformed_input,
-                                transformed_output_grad, strides, paddings,
-                                dilations, filter_grad);
+                                transformed_output_grad, filter_grad, strides, paddings,
+                                dilations);
       } else {
         math::DepthwiseConvFilterGradFunctor<DeviceContext, T, false>
             depthwiseConvFilterGrad;
         depthwiseConvFilterGrad(dev_ctx, transformed_input,
-                                transformed_output_grad, strides, paddings,
-                                dilations, filter_grad);
+                                transformed_output_grad, filter_grad, strides, paddings,
+                                dilations);
       }
     }
   }

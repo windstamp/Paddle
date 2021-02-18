@@ -260,7 +260,11 @@ class Pool2dGradFunctor<platform::CPUDeviceContext, PoolProcess, T> {
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings, 
                   PoolProcess pool_grad_process,
-                  bool exclusive, bool adaptive) {
+                  const bool exclusive, 
+                  const bool is_hipcc,
+                  const bool adaptive) {
+    VLOG(3) << "======== adaptive = " << adaptive;
+    VLOG(3) << "======== is_hipcc = " << is_hipcc;
     const int batch_size = input.dims()[0];
     const int input_height = input.dims()[2];
     const int input_width = input.dims()[3];
@@ -342,7 +346,11 @@ class Pool2dGradFunctor<platform::CPUDeviceContext, PoolProcess, T> {
                   const std::vector<int>& paddings,
                   const std::string data_format,
                   PoolProcess pool_grad_process, 
-                  bool exclusive, bool adaptive) {
+                  const bool exclusive, 
+                  const bool is_hipcc,
+                  const bool adaptive) {
+    VLOG(3) << "======== adaptive = " << adaptive;
+    VLOG(3) << "======== is_hipcc = " << is_hipcc;
     bool channel_last = (data_format == "NHWC");
 
     const int batch_size = input.dims()[0];

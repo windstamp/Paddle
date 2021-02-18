@@ -141,7 +141,9 @@ class Pool2dGradFunctor {
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings, PoolProcess pool_compute,
-                  bool exclusive, bool adaptive);
+                  const bool exclusive, 
+                  const bool is_hipcc,
+                  const bool adaptive);
   // overload operator() to support argument data_format
   void operator()(const DeviceContext& context, const framework::Tensor& input,
                   const framework::Tensor& output,
@@ -151,7 +153,9 @@ class Pool2dGradFunctor {
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
                   const std::string data_format, PoolProcess pool_compute,
-                  bool exclusive, bool adaptive);
+                  const bool exclusive, 
+                  const bool is_hipcc,
+                  const bool adaptive);
 };
 
 template <typename DeviceContext, class T>
