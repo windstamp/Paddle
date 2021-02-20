@@ -46,10 +46,13 @@ __device__ __inline__ void CudaAtomicAddWithWarp(T* sum, T value) {
   typedef cub::WarpReduce<T> WarpReduce;
 #endif
   __shared__ typename WarpReduce::TempStorage temp_storage;
-  value = WarpReduce(temp_storage).Sum(value);
+  // value = WarpReduce(temp_storage).Sum(value);
 #ifdef __HIPCC__
+  int block_size = min(blockDim.x * blockDim.y * blockDim.z, warpSize);
+  value = WarpReduce(temp_storage).Sum(value, block_size);
   if (hipcub::LaneId() == 0) platform::CudaAtomicAdd(sum, value);
 #else
+  value = WarpReduce(temp_storage).Sum(value);
   if (cub::LaneId() == 0) platform::CudaAtomicAdd(sum, value);
 #endif
 }
@@ -566,7 +569,7 @@ __device__ __inline__ void KernelDepthwiseConvFilterGrad(
   }
   // CUDA_PRINT("gbid=%d s=%2.1f", gbid, s);
   CudaAtomicAddWithWarp(&filter_grad_data[gbid], s);
-  CUDA_PRINT("gbid=%d s=%2.1f filter_grad_data[gbid]=%2.1f", gbid, s, filter_grad_data[gbid]);
+  // CUDA_PRINT("gbid=%d s=%2.1f filter_grad_data[gbid]=%2.1f", gbid, s, filter_grad_data[gbid]);
 }
 
 template <typename T, int c_filter_multiplier, bool fuse_relu_before_conv>
