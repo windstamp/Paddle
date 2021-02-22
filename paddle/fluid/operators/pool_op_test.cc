@@ -27,21 +27,21 @@ namespace paddle {
 namespace operators {
 
 // input
-const int batch_size = 1;
-const int input_channel = 1;
-const int input_height = 2;
-const int input_width = 2;
+const int batch_size = 2;
+const int input_channel = 3;
+const int input_height = 7;
+const int input_width = 7;
 // attr
-const int pool_size = 1;
-const int pool_stride = 1;
-const int pool_padding = 0;
+const std::vector<int> pool_size = {3, 3};
+const std::vector<int> pool_stride = {1, 1};
+const std::vector<int> pool_padding = {0, 0};
 const std::string padding_algorithm = "EXPLICIT";
 // attr
 const bool ceil_mode = false;
 const bool exclusive = true;
-const bool adaptive = false;
+const bool adaptive = true;
 const bool global_pooling = false;
-const std::string pooling_t = "avg";
+const std::string pooling_type = "avg";
 const std::string data_format = "NCHW";
 
 template <typename T>
@@ -59,12 +59,21 @@ static void feed_tensor_data(const platform::DeviceContext& ctx,
 
 template <typename T>
 static void print_tensor_data(const platform::DeviceContext& ctx,
-                             framework::LoDTensor* tensor) {
+                             framework::LoDTensor* tensor,
+                             const char * name) {
   size_t numel = static_cast<size_t>(framework::product(tensor->dims()));
   std::vector<T> data(numel);
   framework::TensorToVector(*tensor, ctx, &data);
-  for (size_t i = 0; i < numel; ++i) {
-    printf("output[%02d] = %5.1f\n", i, data[i]);
+
+  printf("=============%s============\n", name);
+  size_t stride_h = tensor->dims()[3];
+  size_t stride_w = tensor->dims()[2] * stride_h;
+  size_t index = 0;
+  while(index < numel) {
+    printf("%5.1f ", data[index]);
+    if((index+1) % stride_h == 0) printf("\n");
+    if((index+1) % stride_w == 0) printf("\n");
+    index ++;
   }
 }
 
@@ -83,14 +92,15 @@ void TestPool2D(const platform::DeviceContext& ctx, const bool use_cudnn) {
   desc_fwd.SetType("pool2d");
   desc_fwd.SetInput("X", {"X"});
   desc_fwd.SetOutput("Out", {"Out"});
-  desc_fwd.SetAttr("pooling_type", pooling_t);
-  desc_fwd.SetAttr("ksize", std::vector<int>({pool_size, pool_size}));
-  desc_fwd.SetAttr("strides", std::vector<int>({pool_stride, pool_stride}));
-  desc_fwd.SetAttr("paddings", std::vector<int>({pool_padding, pool_padding}));
-  desc_fwd.SetAttr("global_pooling", true);
+  desc_fwd.SetAttr("pooling_type", pooling_type);
+  desc_fwd.SetAttr("ksize", pool_size);
+  desc_fwd.SetAttr("strides", pool_stride);
+  desc_fwd.SetAttr("paddings", pool_padding);
+  desc_fwd.SetAttr("global_pooling", global_pooling);
   desc_fwd.SetAttr("exclusive", exclusive);
   desc_fwd.SetAttr("adaptive", adaptive);
   desc_fwd.SetAttr("use_cudnn", use_cudnn);
+  desc_bwd.SetAttr("use_mkldnn", false);
 
   auto input_tensor = scope.Var("X")->GetMutable<framework::LoDTensor>();
   auto output_tensor = scope.Var("Out")->GetMutable<framework::LoDTensor>();
@@ -106,7 +116,7 @@ void TestPool2D(const platform::DeviceContext& ctx, const bool use_cudnn) {
   LOG(INFO) << "After run: " << op_fwd->DebugStringEx(&scope);
 
   // get output
-  print_tensor_data<T>(ctx, output_tensor);
+  // print_tensor_data<T>(ctx, output_tensor, "output");
 
   // --------------- backward ----------------------
   desc_bwd.SetType("pool2d_grad");
@@ -114,14 +124,14 @@ void TestPool2D(const platform::DeviceContext& ctx, const bool use_cudnn) {
   desc_bwd.SetInput("Out", {"Out"});
   desc_bwd.SetInput(framework::GradVarName("Out"), {framework::GradVarName("Out")});
   desc_bwd.SetOutput(framework::GradVarName("X"), {framework::GradVarName("X")});
-  desc_bwd.SetAttr("pooling_type", pooling_t);
-  desc_bwd.SetAttr("ksize", std::vector<int>({pool_size, pool_size}));
-  desc_bwd.SetAttr("strides", std::vector<int>({pool_stride, pool_stride}));
-  desc_bwd.SetAttr("paddings", std::vector<int>({pool_padding, pool_padding}));
+  desc_bwd.SetAttr("pooling_type", pooling_type);
+  desc_bwd.SetAttr("ksize", pool_size);
+  desc_bwd.SetAttr("strides", pool_stride);
+  desc_bwd.SetAttr("paddings", pool_padding);
   desc_bwd.SetAttr("exclusive", exclusive);
   desc_bwd.SetAttr("adaptive", adaptive);
   desc_bwd.SetAttr("data_format", data_format);
-  desc_bwd.SetAttr("global_pooling", false);
+  desc_bwd.SetAttr("global_pooling", global_pooling);
   desc_bwd.SetAttr("padding_algorithm", padding_algorithm);
   desc_bwd.SetAttr("use_cudnn", use_cudnn);
   desc_bwd.SetAttr("use_mkldnn", false);
@@ -140,17 +150,14 @@ void TestPool2D(const platform::DeviceContext& ctx, const bool use_cudnn) {
   LOG(INFO) << "After run: " << op_bwd->DebugStringEx(&scope);
 
   // get input grad data
-  print_tensor_data<T>(ctx, input_tensor);
-  print_tensor_data<T>(ctx, output_tensor);
-  print_tensor_data<T>(ctx, output_grad_tensor);
-  print_tensor_data<T>(ctx, input_grad_tensor);
+  // print_tensor_data<T>(ctx, input_grad_tensor, "input_grad");
 }
 
-TEST(test_pool2d_op, cpu_place) {
-  platform::CPUPlace place;
-  platform::CPUDeviceContext ctx(place);
-  TestPool2D<float>(ctx, false);
-}
+// TEST(test_pool2d_op, cpu_place) {
+//   platform::CPUPlace place;
+//   platform::CPUDeviceContext ctx(place);
+//   TestPool2D<float>(ctx, false);
+// }
 
 #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 TEST(test_pool2d_op, gpu_place) {
@@ -159,13 +166,13 @@ TEST(test_pool2d_op, gpu_place) {
   TestPool2D<float>(ctx, false);
 }
 
-TEST(test_pool2d_cudnn_op, gpu_place) {
-  int cudnn_version = platform::CudnnVersion();
-  printf("CUDNN version is: %d\n", cudnn_version);
-  platform::CUDAPlace place(0);
-  platform::CUDADeviceContext ctx(place);
-  TestPool2D<float>(ctx, true);
-}
+// TEST(test_pool2d_cudnn_op, gpu_place) {
+//   int cudnn_version = platform::CudnnVersion();
+//   printf("CUDNN version is: %d\n", cudnn_version);
+//   platform::CUDAPlace place(0);
+//   platform::CUDADeviceContext ctx(place);
+//   TestPool2D<float>(ctx, true);
+// }
 #endif
 
 }  // namespace operators

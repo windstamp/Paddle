@@ -34,8 +34,17 @@ static void print_tensor_data(const platform::DeviceContext& ctx,
   size_t numel = static_cast<size_t>(framework::product(tensor->dims()));
   std::vector<T> data(numel);
   framework::TensorToVector(*tensor, ctx, &data);
-  for (size_t i = 0; i < numel; ++i) {
-    printf("%s[%02d] = %5.1f\n", name, i, data[i]);
+
+  printf("=============%s============\n", name);
+  PADDLE_ENFORCE_EQ(tensor->dims().size(), 4UL);
+  size_t stride_h = tensor->dims()[3];
+  size_t stride_w = tensor->dims()[2] * stride_h;
+  size_t index = 0;
+  while(index < numel) {
+    printf("%5.1f ", data[index]);
+    if((index+1) % stride_h == 0) printf("\n");
+    if((index+1) % stride_w == 0) printf("\n");
+    index ++;
   }
 }
 
@@ -185,16 +194,26 @@ class PoolKernel : public framework::OpKernel<T> {
               DeviceContext, paddle::operators::math::MaxPool<T>, T>
               pool2d_forward;
           paddle::operators::math::MaxPool<T> pool_process;
-          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
-                         pool_process, true, false);
+          VLOG(3) << "======== exclusive = " << exclusive;
+          VLOG(3) << "======== adaptive = " << adaptive;
+          VLOG(3) << "======== data_format = " << data_format;
+          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings,
+                         data_format, true, false, pool_process);
+          // VLOG(3) << "======== adaptive = " << adaptive;
 
         } else if (pooling_type == "avg") {
           paddle::operators::math::Pool2dFunctor<
               DeviceContext, paddle::operators::math::AvgPool<T>, T>
               pool2d_forward;
           paddle::operators::math::AvgPool<T> pool_process;
-          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings, data_format,
-                         pool_process, exclusive, adaptive);
+          VLOG(3) << "======== exclusive = " << exclusive;
+          VLOG(3) << "======== adaptive = " << adaptive;
+          VLOG(3) << "======== data_format = " << data_format;
+          // print_tensor_data<T>(context.device_context(), in_x, "input");
+          pool2d_forward(dev_ctx, *in_x, out, ksize, strides, paddings,
+                         data_format, exclusive, adaptive, pool_process);
+          // VLOG(3) << "======== adaptive = " << adaptive;
+          // print_tensor_data<T>(context.device_context(), out, "output");
         }
       } break;
       case 3: {
@@ -247,11 +266,6 @@ class PoolGradKernel : public framework::OpKernel<T> {
     const bool channel_last = (data_format == "NHWC" || data_format == "NDHWC");
     const bool is_hipcc = false;
 
-    VLOG(3) << "======== adaptive = " << adaptive;
-    print_tensor_data<T>(context.device_context(), in_x, "input");
-    print_tensor_data<T>(context.device_context(), out, "output");
-    print_tensor_data<T>(context.device_context(), out_grad, "out_grad");
-
     // update paddings
     auto in_x_dims = in_x->dims();
     framework::DDim data_dims;
@@ -267,8 +281,6 @@ class PoolGradKernel : public framework::OpKernel<T> {
         paddings.erase(paddings.begin() + i + 1);
       }
     }
-
-    VLOG(3) << "======== adaptive = " << adaptive;
 
     if (global_pooling) {
       UpdateKsize(&ksize, data_dims);
@@ -292,14 +304,12 @@ class PoolGradKernel : public framework::OpKernel<T> {
                 DeviceContext, paddle::operators::math::AvgPoolGrad<T>, T>
                 pool2d_backward;
             paddle::operators::math::AvgPoolGrad<T> pool_process;
+            VLOG(3) << "======== exclusive = " << exclusive;
             VLOG(3) << "======== adaptive = " << adaptive;
-            VLOG(3) << "======== is_hipcc = " << is_hipcc;
+            VLOG(3) << "======== data_format = " << data_format;
             pool2d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
-                            paddings, data_format, pool_process, exclusive,
-                            is_hipcc, adaptive);
-            VLOG(3) << "======== adaptive = " << adaptive;
-            VLOG(3) << "======== is_hipcc = " << is_hipcc;
-            print_tensor_data<T>(context.device_context(), in_x_grad, "in_x_grad");
+                            paddings, data_format, exclusive, adaptive, pool_process);
+            // print_tensor_data<T>(context.device_context(), in_x_grad, "in_x_grad");
           }
         } break;
         case 3: {
@@ -314,8 +324,7 @@ class PoolGradKernel : public framework::OpKernel<T> {
                 pool3d_backward;
             paddle::operators::math::AvgPoolGrad<T> pool_process;
             pool3d_backward(dev_ctx, *in_x, *out, *out_grad, in_x_grad, ksize, strides,
-                            paddings, data_format, pool_process, exclusive,
-                            adaptive);
+                            paddings, data_format, pool_process, exclusive, adaptive);
           }
         } break;
         default: {

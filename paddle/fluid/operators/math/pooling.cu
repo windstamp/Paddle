@@ -271,7 +271,6 @@ void Pool2dDirectCUDAFunctor<PoolProcess, T>::operator()(
     const std::vector<int>& strides, const std::vector<int>& paddings,
     PoolProcess pool_compute, bool exclusive, bool adaptive, T* output,
     gpuStream_t stream) {
-  VLOG(3) << "======== adaptive = " << adaptive;
   const int batch_size = input_shape[0];
   const int input_channels = input_shape[1];
   const int input_height = input_shape[2];
@@ -320,10 +319,10 @@ class Pool2dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   framework::Tensor* output,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
-                  const std::vector<int>& paddings, 
-                  PoolProcess pool_process,
-                  bool exclusive, bool adaptive) {
-    VLOG(3) << "======== adaptive = " << adaptive;
+                  const std::vector<int>& paddings,
+                  bool exclusive, 
+                  bool adaptive,
+                  PoolProcess pool_process) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -374,9 +373,13 @@ class Pool2dFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings,
-                  const std::string data_format, PoolProcess pool_process,
-                  bool exclusive, bool adaptive) {
+                  const std::string data_format,
+                  bool exclusive, 
+                  bool adaptive,
+                  PoolProcess pool_process) {
+    VLOG(3) << "======== exclusive = " << exclusive;
     VLOG(3) << "======== adaptive = " << adaptive;
+    VLOG(3) << "======== data_format = " << data_format;
     bool channel_last = (data_format == "NHWC");
     const int batch_size = input.dims()[0];
 
@@ -448,12 +451,9 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings, 
-                  PoolProcess pool_process,
-                  const bool exclusive, 
-                  const bool is_hipcc,
-                  const bool adaptive) {
-    VLOG(3) << "======== adaptive = " << adaptive;
-    VLOG(3) << "======== is_hipcc = " << is_hipcc;
+                  bool exclusive, 
+                  bool adaptive,
+                  PoolProcess pool_process) {
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -505,14 +505,14 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
                   framework::Tensor* input_grad,
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides, 
-                  const std::vector<int>& paddings,
-                  const std::string data_format, 
-                  PoolProcess pool_process, 
-                  const bool exclusive, 
-                  const bool is_hipcc,
-                  const bool adaptive) {
+                  const std::vector<int>& paddings, 
+                  const std::string data_format,
+                  bool exclusive, 
+                  bool adaptive,
+                  PoolProcess pool_process) {
+    VLOG(3) << "======== exclusive = " << exclusive;
     VLOG(3) << "======== adaptive = " << adaptive;
-    VLOG(3) << "======== is_hipcc = " << is_hipcc;
+    VLOG(3) << "======== data_format = " << data_format;
     bool channel_last = (data_format == "NHWC");
 
     const int batch_size = input.dims()[0];
@@ -553,24 +553,24 @@ class Pool2dGradFunctor<platform::CUDADeviceContext, PoolProcess, T> {
     dim3 grid(blocks, 1);
 #endif
 
-    VLOG(3) << "channel_last=" << channel_last;
-    VLOG(3) << "batch_size=" << batch_size;
-    VLOG(3) << "input_channels=" << input_channels;
-    VLOG(3) << "input_height=" << input_height;
-    VLOG(3) << "input_width=" << input_width;
-    VLOG(3) << "output_channels=" << output_channels;
-    VLOG(3) << "output_height=" << output_height;
-    VLOG(3) << "output_width=" << output_width;
-    VLOG(3) << "ksize_height=" << ksize_height;
-    VLOG(3) << "ksize_width=" << ksize_width;
-    VLOG(3) << "stride_height=" << stride_height;
-    VLOG(3) << "stride_width=" << stride_width;
-    VLOG(3) << "padding_height=" << padding_height;
-    VLOG(3) << "padding_width=" << padding_width;
-    VLOG(3) << "exclusive=" << exclusive;
-    VLOG(3) << "adaptive=" << adaptive;
-    VLOG(3) << "nthreads=" << nthreads;
-    VLOG(3) << "blocks=" << blocks;
+    // VLOG(3) << "channel_last=" << channel_last;
+    // VLOG(3) << "batch_size=" << batch_size;
+    // VLOG(3) << "input_channels=" << input_channels;
+    // VLOG(3) << "input_height=" << input_height;
+    // VLOG(3) << "input_width=" << input_width;
+    // VLOG(3) << "output_channels=" << output_channels;
+    // VLOG(3) << "output_height=" << output_height;
+    // VLOG(3) << "output_width=" << output_width;
+    // VLOG(3) << "ksize_height=" << ksize_height;
+    // VLOG(3) << "ksize_width=" << ksize_width;
+    // VLOG(3) << "stride_height=" << stride_height;
+    // VLOG(3) << "stride_width=" << stride_width;
+    // VLOG(3) << "padding_height=" << padding_height;
+    // VLOG(3) << "padding_width=" << padding_width;
+    // VLOG(3) << "exclusive=" << exclusive;
+    // VLOG(3) << "adaptive=" << adaptive;
+    // VLOG(3) << "nthreads=" << nthreads;
+    // VLOG(3) << "blocks=" << blocks;
     
 
 #ifdef __HIPCC__
@@ -608,6 +608,7 @@ class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
                   const std::vector<int>& ksize,
                   const std::vector<int>& strides,
                   const std::vector<int>& paddings) {
+    // VLOG(3) << "======== adaptive = " << adaptive;
     const int batch_size = input.dims()[0];
     const int input_channels = input.dims()[1];
     const int input_height = input.dims()[2];
@@ -654,15 +655,16 @@ class MaxPool2dGradFunctor<platform::CUDADeviceContext, T> {
 #endif
   }
   void operator()(const platform::CUDADeviceContext& context,
-    const framework::Tensor& input, 
-    const framework::Tensor& output,
-    const framework::Tensor& output_grad, 
-    framework::Tensor* input_grad,
-    const std::vector<int>& ksize,
-    const std::vector<int>& strides, 
-    const std::vector<int>& paddings,
-    const std::string data_format) {
-bool channel_last = (data_format == "NHWC");
+                  const framework::Tensor& input, 
+                  const framework::Tensor& output,
+                  const framework::Tensor& output_grad, 
+                  framework::Tensor* input_grad,
+                  const std::vector<int>& ksize,
+                  const std::vector<int>& strides, 
+                  const std::vector<int>& paddings,
+                  const std::string data_format) {
+    // VLOG(3) << "======== adaptive = " << adaptive;
+    bool channel_last = (data_format == "NHWC");
 
     const int batch_size = input.dims()[0];
 
