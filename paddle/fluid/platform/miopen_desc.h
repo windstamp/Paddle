@@ -205,9 +205,9 @@ class FilterDescriptor {
                       platform::errors::InvalidArgument(
                           "format should ONLY be NCHW in MIOPEN."));
     transformed_dims = dims;
-    if (groups > 1) {
-      transformed_dims[1] = transformed_dims[1] / groups;
-    }
+    // if (groups > 1) {
+    //   transformed_dims[1] = transformed_dims[1] / groups;
+    // }
     PADDLE_ENFORCE_CUDA_SUCCESS(dynload::miopenSet4dTensorDescriptor(
         (miopenTensorDescriptor_t)desc_.get(), 
         ToCudnnDataType(tensor.type()),

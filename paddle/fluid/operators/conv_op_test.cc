@@ -27,207 +27,155 @@ namespace paddle {
 namespace operators {
 
 // input
-const int batch_size = 128;
+const int batch_size = 1;
 const int input_channel = 3;
-const int input_height = 224;
-const int input_width = 224;
+const int input_height = 1;
+const int input_width = 1;
 // filter
-const int output_channel = 64;
-const int groups = 1;
-const int kernel_h = 7;
-const int kernel_w = 7;
+const int output_channel = 3;
+const int groups = 3;
+const int kernel_h = 1;
+const int kernel_w = 1;
 // attr
-const int conv_stride = 2;
-const int conv_padding = 3;
-const int conv_dilation = 1;
+const std::vector<int> conv_stride = {1, 1};
+const std::vector<int> conv_padding = {1, 1, 2, 0};
+const std::vector<int> conv_dilation = {1, 1};
 const std::string padding_algorithm = "EXPLICIT";
 const std::string data_format = "NCHW";
 const bool exhaustive_search = false;
 
 template <typename T>
-void TestConv2DFwd(const platform::DeviceContext& ctx, const bool use_cudnn = false) {
+static void feed_tensor_data(const platform::DeviceContext& ctx, 
+                             const framework::DDim dims,
+                             framework::LoDTensor* tensor) {
+  size_t numel = static_cast<size_t>(framework::product(dims));
+  std::vector<T> data(numel);
+  for (size_t i = 0; i < numel; ++i) {
+    data[i] = 1;
+  }
+  framework::TensorFromVector(data, ctx, tensor);
+  tensor->Resize(dims);
+}
+
+template <typename T>
+static void print_tensor_data(const platform::DeviceContext& ctx,
+                             framework::LoDTensor* tensor,
+                             const char * name) {
+  size_t numel = static_cast<size_t>(framework::product(tensor->dims()));
+  std::vector<T> data(numel);
+  framework::TensorToVector(*tensor, ctx, &data);
+
+  printf("=============%s============\n", name);
+  size_t stride_h = tensor->dims()[3];
+  size_t stride_w = tensor->dims()[2] * stride_h;
+  size_t index = 0;
+  while(index < numel) {
+    printf("%5.1f ", data[index]);
+    if((index+1) % stride_h == 0) printf("\n");
+    if((index+1) % stride_w == 0) printf("\n");
+    index ++;
+  }
+}
+
+template <typename T>
+void TestConv2D(const platform::DeviceContext& ctx, const bool use_cudnn = false) {
   auto place = ctx.GetPlace();
-  framework::OpDesc desc;
   framework::Scope scope;
+  framework::OpDesc desc_fwd;
+  framework::OpDesc desc_bwd;
 
   framework::DDim input_dims({batch_size, input_channel, input_height, input_width});
-  size_t input_numel = static_cast<size_t>(framework::product(input_dims));
-
   framework::DDim filter_dims({output_channel, static_cast<int>(input_channel/groups), kernel_h, kernel_w});
-  size_t filter_numel = static_cast<size_t>(framework::product(filter_dims));
 
-  // output
-  const int output_height = static_cast<int>((input_height + 2 * conv_padding - (conv_dilation * (kernel_h - 1) + 1)) / conv_stride + 1);
-  const int output_width = static_cast<int>((input_width + 2 * conv_padding - (conv_dilation * (kernel_w - 1) + 1)) / conv_stride + 1);
-  framework::DDim output_dims({batch_size, output_channel, output_height, output_width});
-  size_t output_numel = static_cast<size_t>(framework::product(output_dims));
-
-  // op desc
-  desc.SetType("conv2d");
-  desc.SetInput("Input", {"Input"});
-  desc.SetInput("Filter", {"Filter"});
-  desc.SetOutput("Output", {"Output"});
-  desc.SetAttr("groups", groups);
-  desc.SetAttr("strides", std::vector<int>({conv_stride, conv_stride}));
-  desc.SetAttr("paddings", std::vector<int>({conv_padding, conv_padding}));
-  desc.SetAttr("dilations", std::vector<int>({conv_dilation, conv_dilation}));
-  desc.SetAttr("use_cudnn", use_cudnn);
-  desc.SetAttr("use_mkldnn", false);
+  // --------------- forward ----------------------
+  desc_fwd.SetType("conv2d");
+  desc_fwd.SetInput("Input", {"Input"});
+  desc_fwd.SetInput("Filter", {"Filter"});
+  desc_fwd.SetOutput("Output", {"Output"});
+  desc_fwd.SetAttr("groups", groups);
+  desc_fwd.SetAttr("strides", conv_stride);
+  desc_fwd.SetAttr("paddings", conv_padding);
+  desc_fwd.SetAttr("dilations", conv_dilation);
+  desc_fwd.SetAttr("fuse_relu_before_depthwise_conv", false);
+  desc_fwd.SetAttr("padding_algorithm", padding_algorithm);
+  desc_fwd.SetAttr("use_cudnn", use_cudnn);
+  desc_fwd.SetAttr("use_mkldnn", false);
+  desc_fwd.SetAttr("data_format", data_format);
+  desc_fwd.SetAttr("exhaustive_search", false);
 
   auto input_tensor = scope.Var("Input")->GetMutable<framework::LoDTensor>();
   auto filter_tensor = scope.Var("Filter")->GetMutable<framework::LoDTensor>();
   auto output_tensor = scope.Var("Output")->GetMutable<framework::LoDTensor>();
 
   // feed input data
-  std::vector<T> input_data(input_numel);
-  for (size_t i = 0; i < input_numel; ++i) {
-    input_data[i] = i;
-  }
-  framework::TensorFromVector(input_data, ctx, input_tensor);
-  input_tensor->Resize(input_dims);
-
-
-  // feed filter data
-  std::vector<T> filter_data(filter_numel);
-  for (size_t i = 0; i < filter_numel; ++i) {
-    filter_data[i] = i;
-  }
-  framework::TensorFromVector(filter_data, ctx, filter_tensor);
-  filter_tensor->Resize(filter_dims);
+  feed_tensor_data<T>(ctx, input_dims, input_tensor);
+  feed_tensor_data<T>(ctx, filter_dims, filter_tensor);
   
-  auto op = framework::OpRegistry::CreateOp(desc);
+  auto op_fwd = framework::OpRegistry::CreateOp(desc_fwd);
 
-  auto before_run_str = op->DebugStringEx(&scope);
-  LOG(INFO) << before_run_str;
-
-  op->Run(scope, place);
+  LOG(INFO) << op_fwd->DebugStringEx(&scope);
+  op_fwd->Run(scope, place);
   platform::DeviceContextPool::Instance().Get(place)->Wait();
-
-  auto after_run_str = op->DebugStringEx(&scope);
-  LOG(INFO) << after_run_str;
+  LOG(INFO) << op_fwd->DebugStringEx(&scope);
 
   // get output
-  std::vector<T> output_data;
-  framework::TensorToVector(*output_tensor, ctx, &output_data);
+  print_tensor_data<T>(ctx, output_tensor, "output");
 
-  printf("output_tensor dims is: %s\n", output_tensor->dims().to_str().c_str());
+  // --------------- backward ----------------------
+  desc_bwd.SetType("conv2d_grad");
+  desc_bwd.SetInput("Input", {"Input"});
+  desc_bwd.SetInput("Filter", {"Filter"});
+  desc_bwd.SetInput(framework::GradVarName("Output"), {framework::GradVarName("Output")});
+  desc_bwd.SetOutput(framework::GradVarName("Input"), {framework::GradVarName("Input")});
+  desc_bwd.SetOutput(framework::GradVarName("Filter"), {framework::GradVarName("Filter")});
+  desc_bwd.SetAttr("groups", groups);
+  desc_bwd.SetAttr("strides", conv_stride);
+  desc_bwd.SetAttr("paddings", conv_padding);
+  desc_bwd.SetAttr("dilations", conv_dilation);
+  desc_bwd.SetAttr("fuse_relu_before_depthwise_conv", false);
+  desc_bwd.SetAttr("use_cudnn", use_cudnn);
+  desc_bwd.SetAttr("use_mkldnn", false);
+  desc_bwd.SetAttr("padding_algorithm", padding_algorithm);
+  desc_bwd.SetAttr("data_format", data_format);
+  desc_bwd.SetAttr("exhaustive_search", exhaustive_search);
+  desc_bwd.SetAttr("use_addto", false);
 
-  // for (size_t i = 0; i < output_numel; ++i) {
-  //   printf("output[%02d] = %5.1f\n", i, output_data[i]);
-  // }
-}
-
-template <typename T>
-void TestConv2DGrad(const platform::DeviceContext& ctx, const bool use_cudnn) {
-  auto place = ctx.GetPlace();
-  framework::OpDesc desc;
-  framework::Scope scope;
-
-  framework::DDim input_dims({batch_size, input_channel, input_height, input_width});
-  size_t input_numel = static_cast<size_t>(framework::product(input_dims));
-
-  framework::DDim filter_dims({output_channel, static_cast<int>(input_channel/groups), kernel_h, kernel_w});
-  size_t filter_numel = static_cast<size_t>(framework::product(filter_dims));
-
-  // output
-  const int output_height = static_cast<int>((input_height + 2 * conv_padding - (conv_dilation * (kernel_h - 1) + 1)) / conv_stride + 1);
-  const int output_width = static_cast<int>((input_width + 2 * conv_padding - (conv_dilation * (kernel_w - 1) + 1)) / conv_stride + 1);
-  framework::DDim output_dims({batch_size, output_channel, output_height, output_width});
-  size_t output_numel = static_cast<size_t>(framework::product(output_dims));
-
-  desc.SetType("conv2d_grad");
-  desc.SetInput("Input", {"Input"});
-  desc.SetInput("Filter", {"Filter"});
-  desc.SetInput(framework::GradVarName("Output"), {framework::GradVarName("Output")});
-  desc.SetOutput(framework::GradVarName("Input"), {framework::GradVarName("Input")});
-  desc.SetOutput(framework::GradVarName("Filter"), {framework::GradVarName("Filter")});
-  desc.SetAttr("groups", groups);
-  desc.SetAttr("strides", std::vector<int>({conv_stride, conv_stride}));
-  desc.SetAttr("paddings", std::vector<int>({conv_padding, conv_padding}));
-  desc.SetAttr("dilations", std::vector<int>({conv_dilation, conv_dilation}));
-  desc.SetAttr("use_cudnn", use_cudnn);
-  desc.SetAttr("use_mkldnn", false);
-  desc.SetAttr("padding_algorithm", padding_algorithm);
-  desc.SetAttr("data_format", data_format);
-  desc.SetAttr("exhaustive_search", exhaustive_search);
-  desc.SetAttr("use_addto", false);
-
-  auto input_tensor = scope.Var("Input")->GetMutable<framework::LoDTensor>();
-  auto filter_tensor = scope.Var("Filter")->GetMutable<framework::LoDTensor>();
   auto output_grad_tensor = scope.Var(framework::GradVarName("Output"))->GetMutable<framework::LoDTensor>();
   auto input_grad_tensor = scope.Var(framework::GradVarName("Input"))->GetMutable<framework::LoDTensor>();
   auto filter_grad_tensor = scope.Var(framework::GradVarName("Filter"))->GetMutable<framework::LoDTensor>();
 
-  // feed input data
-  std::vector<T> input_data(input_numel);
-  for (size_t i = 0; i < input_numel; ++i) {
-    input_data[i] = i;
-  }
-  framework::TensorFromVector(input_data, ctx, input_tensor);
-  input_tensor->Resize(input_dims);
+  // feed output_grad data
+  feed_tensor_data<T>(ctx, output_tensor->dims(), output_grad_tensor);
 
-  // feed filter data
-  std::vector<T> filter_data(filter_numel);
-  for (size_t i = 0; i < filter_numel; ++i) {
-    filter_data[i] = i;
-  }
-  framework::TensorFromVector(filter_data, ctx, filter_tensor);
-  filter_tensor->Resize(filter_dims);
+  auto op_bwd = framework::OpRegistry::CreateOp(desc_bwd);
 
-  // feed output grad data
-  std::vector<T> output_grad_data(output_numel);
-  for (size_t i = 0; i < output_numel; ++i) {
-    output_grad_data[i] = 1;
-  }
-  framework::TensorFromVector(output_grad_data, ctx, output_grad_tensor);
-  output_grad_tensor->Resize(output_dims);
-  
-  auto op = framework::OpRegistry::CreateOp(desc);
-
-  auto before_run_str = op->DebugStringEx(&scope);
-  LOG(INFO) << before_run_str;
-
-  op->Run(scope, place);
+  LOG(INFO) << op_bwd->DebugStringEx(&scope);
+  op_bwd->Run(scope, place);
   platform::DeviceContextPool::Instance().Get(place)->Wait();
+  LOG(INFO) << op_bwd->DebugStringEx(&scope);
 
-  auto after_run_str = op->DebugStringEx(&scope);
-  LOG(INFO) << after_run_str;
-
-  // get output
-  std::vector<T> input_grad_data, filter_grad_data;
-  framework::TensorToVector(*input_grad_tensor, ctx, &input_grad_data);
-  framework::TensorToVector(*filter_grad_tensor, ctx, &filter_grad_data);
-
-  printf("input_grad_tensor dims is: %s\n", input_grad_tensor->dims().to_str().c_str());
-  printf("filter_grad_tensor dims is: %s\n", filter_grad_tensor->dims().to_str().c_str());
-
-  // for (size_t i = 0; i < output_numel; ++i) {
-  //   printf("output[%02d] = %5.1f\n", i, output_data[i]);
-  // }
+  // get input grad data
+  print_tensor_data<T>(ctx, input_grad_tensor, "input_grad");
+  print_tensor_data<T>(ctx, filter_grad_tensor, "filter_grad");
 }
 
-// TEST(test_conv2d_op, cpu_place) {
-//   platform::CPUPlace place;
-//   platform::CPUDeviceContext ctx(place);
-//   TestConv2DFwd<float>(ctx, false);
-//   TestConv2DGrad<float>(ctx, false);
-// }
+TEST(test_conv2d_op, cpu_place) {
+  platform::CPUPlace place;
+  platform::CPUDeviceContext ctx(place);
+  TestConv2D<float>(ctx, false);
+}
 
 #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
-// TEST(test_conv2d_op, gpu_place) {
-//   platform::CUDAPlace place(0);
-//   platform::CUDADeviceContext ctx(place);
-//   TestConv2DFwd<float>(ctx, false);
-//   TestConv2DGrad<float>(ctx, false);
-// }
-
-TEST(test_conv2d_cudnn_op, gpu_place) {
-  int cudnn_version = platform::CudnnVersion();
-  printf("CUDNN version is: %d\n", cudnn_version);
+TEST(test_conv2d_op, gpu_place) {
   platform::CUDAPlace place(0);
   platform::CUDADeviceContext ctx(place);
-  // TestConv2DFwd<float>(ctx, true);
-  TestConv2DGrad<float>(ctx, true);
+  TestConv2D<float>(ctx, false);
+}
+
+TEST(test_conv2d_cudnn_op, gpu_place) {
+  platform::CUDAPlace place(0);
+  platform::CUDADeviceContext ctx(place);
+  TestConv2D<float>(ctx, true);
 }
 #endif
 

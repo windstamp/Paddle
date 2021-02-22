@@ -246,15 +246,22 @@ class CUDNNConvOpKernel : public framework::OpKernel<T> {
     auto layout_format = GetCudnnTensorFormat(layout);
 
     args.handle = handle;
-    args.cdesc.set(dtype, padding_common, strides, dilations,
-                   platform::AllowTF32Cudnn());
+
 
 #ifdef PADDLE_WITH_HIP
-    PADDLE_ENFORCE_CUDA_SUCCESS(
-        platform::dynload::miopenSetConvolutionGroupCount(args.cdesc.desc(),
-                                                         groups));
-    groups = 1;
-#elif CUDNN_VERSION_MIN(7, 0, 1)
+    args.cdesc.set(dtype, padding_common, strides, dilations,
+                   platform::AllowTF32Cudnn(), groups);
+#else
+    args.cdesc.set(dtype, padding_common, strides, dilations,
+                   platform::AllowTF32Cudnn());
+#endif
+
+// #ifdef PADDLE_WITH_HIP
+//     PADDLE_ENFORCE_CUDA_SUCCESS(
+//         platform::dynload::miopenSetConvolutionGroupCount(args.cdesc.desc(),
+//                                                          groups));
+//     groups = 1;
+#if defined(PADDLE_WITH_CUDA) && CUDNN_VERSION_MIN(7, 0, 1)
     // cudnn 7 can support groups, no need to do it manually
     // FIXME(typhoonzero): find a better way to disable groups
     // rather than setting it to 1.
@@ -297,11 +304,12 @@ class CUDNNConvOpKernel : public framework::OpKernel<T> {
     algo = search::Find<T>(args, exhaustive_search, false, ctx);
     workspace_size = search::GetWorkspaceSize(args, algo);
 
-#ifdef PADDLE_WITH_HIP
-    if (ctx.Attr<int>("groups") > 1) {
-      algo = static_cast<miopenConvFwdAlgorithm_t>(0);
-    }
-#elif CUDNN_VERSION_MIN(7, 0, 1)
+// #ifdef PADDLE_WITH_HIP
+//     if (ctx.Attr<int>("groups") > 1) {
+//       algo = static_cast<miopenConvFwdAlgorithm_t>(0);
+//     }
+// #elif CUDNN_VERSION_MIN(7, 0, 1)
+#if defined(PADDLE_WITH_CUDA) && CUDNN_VERSION_MIN(7, 0, 1)
     // when groups > 1, SearchAlgorithm find algo is CUDNN_CONVOLUTION_\
     // FWD_ALGO_WINOGRAD_NONFUSED, but this kind of algorithm is unstable
     // in forward computation, so change the algorithm to CUDNN_CONVOLUTION_\
@@ -319,33 +327,48 @@ class CUDNNConvOpKernel : public framework::OpKernel<T> {
     // ScalingParamType<T> beta = ctx.Attr<bool>("use_addto") ? 1.0f : 0.0f;
     // VLOG(4) << "Conv: use_addto = " << ctx.Attr<bool>("use_addto");
 
-    for (int i = 0; i < groups; i++) {
 #ifdef PADDLE_WITH_HIP
     workspace_handle.RunFunc(
       [&](void* workspace_ptr) {
         PADDLE_ENFORCE_CUDA_SUCCESS(
             platform::dynload::miopenConvolutionForward(
-                handle, &alpha, args.idesc.desc(),
-                input_data + i * group_offset_in, args.wdesc.desc(),
-                filter_data + i * group_offset_filter, args.cdesc.desc(),
-                algo, &beta, args.odesc.desc(), 
-                output_data + i * group_offset_out, workspace_ptr, workspace_size));
+                handle, &alpha, 
+                args.idesc.desc(), input_data, 
+                args.wdesc.desc(), filter_data, 
+                args.cdesc.desc(), algo, &beta, 
+                args.odesc.desc(), output_data, 
+                workspace_ptr, workspace_size));
       },
       workspace_size);
-#else
-      workspace_handle.RunFunc(
-          [&](void* workspace_ptr) {
-            PADDLE_ENFORCE_CUDA_SUCCESS(
-                platform::dynload::cudnnConvolutionForward(
-                    handle, &alpha, args.idesc.desc(),
-                    input_data + i * group_offset_in, args.wdesc.desc(),
-                    filter_data + i * group_offset_filter, args.cdesc.desc(),
-                    algo, workspace_ptr, workspace_size, &beta,
-                    args.odesc.desc(), output_data + i * group_offset_out));
-          },
-          workspace_size);
 #endif
-    }
+
+//     for (int i = 0; i < groups; i++) {
+// #ifdef PADDLE_WITH_HIP
+//     workspace_handle.RunFunc(
+//       [&](void* workspace_ptr) {
+//         PADDLE_ENFORCE_CUDA_SUCCESS(
+//             platform::dynload::miopenConvolutionForward(
+//                 handle, &alpha, args.idesc.desc(),
+//                 input_data + i * group_offset_in, args.wdesc.desc(),
+//                 filter_data + i * group_offset_filter, args.cdesc.desc(),
+//                 algo, &beta, args.odesc.desc(), 
+//                 output_data + i * group_offset_out, workspace_ptr, workspace_size));
+//       },
+//       workspace_size);
+// #else
+//       workspace_handle.RunFunc(
+//           [&](void* workspace_ptr) {
+//             PADDLE_ENFORCE_CUDA_SUCCESS(
+//                 platform::dynload::cudnnConvolutionForward(
+//                     handle, &alpha, args.idesc.desc(),
+//                     input_data + i * group_offset_in, args.wdesc.desc(),
+//                     filter_data + i * group_offset_filter, args.cdesc.desc(),
+//                     algo, workspace_ptr, workspace_size, &beta,
+//                     args.odesc.desc(), output_data + i * group_offset_out));
+//           },
+//           workspace_size);
+// #endif
+//     }
 
     if (channel_last && compute_format == DataLayout::kNCHW) {
       TransToChannelLast<paddle::platform::CUDADeviceContext, T>(
