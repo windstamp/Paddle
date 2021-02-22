@@ -68,7 +68,7 @@ static int GetCUDADeviceCountImpl() {
   }
 
 #ifdef PADDLE_WITH_HIP
-  const auto *cuda_visible_devices = std::getenv("HIP_VISIBLE_DEVICES");
+  const auto *cuda_visible_devices = std::getenv("ROCM_VISIBLE_DEVICES");
 #else
   const auto *cuda_visible_devices = std::getenv("CUDA_VISIBLE_DEVICES");
 #endif
@@ -87,7 +87,7 @@ static int GetCUDADeviceCountImpl() {
     if (std::all_of(cuda_visible_devices_str.begin(),
                     cuda_visible_devices_str.end(),
                     [](char ch) { return ch == ' '; })) {
-      VLOG(2) << "CUDA_VISIBLE_DEVICES or HIP_VISIBLE_DEVICES is set to be "
+      VLOG(2) << "CUDA_VISIBLE_DEVICES or ROCM_VISIBLE_DEVICES is set to be "
                  "empty. No GPU detected.";
       return 0;
     }
