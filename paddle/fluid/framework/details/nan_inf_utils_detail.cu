@@ -55,8 +55,10 @@ static void InitMultiGPUOpVarMap() {
 }
 
 template <typename T>
-__global__ void PrintNanInfKernel(const T* value, const size_t numel,
-                                  int print_num, char* debug_info) {
+__device__ __forceinline__ void PrintNanInfKernel(const T* value,
+                                                  const size_t numel,
+                                                  int print_num,
+                                                  char* debug_info) {
   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
 
   __shared__ unsigned int nan_count, inf_count, num_count;
