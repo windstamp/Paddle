@@ -84,11 +84,11 @@ __global__ __forceinline__ void PrintNanInfKernel(const T* value,
 
 #ifdef __HIPCC__
   if (true && hipThreadIdx_x == 0) {
-    printf("In block %d, there has %u,%u,%u nan,inf,num\n", hipBlockIdx_x,
+    printf("In block %zu, there has %u,%u,%u nan,inf,num\n", hipBlockIdx_x,
            nan_count, inf_count, num_count);
 #else
   if (true && threadIdx.x == 0) {
-    printf("In block %d, there has %u,%u,%u nan,inf,num\n", blockIdx.x,
+    printf("In block %zu, there has %u,%u,%u nan,inf,num\n", blockIdx.x,
            nan_count, inf_count, num_count);
 #endif
     PADDLE_ENFORCE(false, "===ERROR: in %s find nan or inf===", debug_info);
@@ -190,6 +190,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
                      print_num, gpu_str_ptr, &result);
+  LOG(WARNING) << "result: " << result;
   if (result == 0)
     hipLaunchKernelGGL(PrintNanInfKernel, dim3(blocks), dim3(threads), 0,
                        dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
