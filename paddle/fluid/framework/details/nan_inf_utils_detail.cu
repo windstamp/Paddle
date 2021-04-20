@@ -55,10 +55,8 @@ static void InitMultiGPUOpVarMap() {
 }
 
 template <typename T>
-__global__ void PrintNanInfKernel(const T* value,
-                                                  const size_t numel,
-                                                  int print_num,
-                                                  char* debug_info) {
+__global__ void PrintNanInfKernel(const T* value, const size_t numel,
+                                  int print_num, char* debug_info) {
   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
 
   __shared__ unsigned int nan_count, inf_count, num_count;
@@ -116,7 +114,12 @@ __global__ void CheckNanInfKernel(const T* value, const size_t numel,
   __syncthreads();
 
   /// Note. different blocks may behave differently
-  if (!has_nan_inf) *result = 1;
+  if (!has_nan_inf) {
+    *result = 1;
+    return;
+  }
+
+  PrintNanInfKernel(value, numel, print_num, debug_info);
 }
 
 template <>
@@ -211,17 +214,17 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
                      print_num, gpu_str_ptr, &result);
   LOG(WARNING) << "result: " << result;
-  if (result == 1)
-    hipLaunchKernelGGL(PrintNanInfKernel, dim3(blocks), dim3(threads), 0,
-                       dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
-                       print_num, gpu_str_ptr);
+// if (result == 1)
+//   hipLaunchKernelGGL(PrintNanInfKernel, dim3(blocks), dim3(threads), 0,
+//                     dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
+//                     print_num, gpu_str_ptr);
 #else
   CheckNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
       tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr, &result);
   LOG(WARNING) << "result: " << result;
-  if (result == 1)
-    PrintNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
-        tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
+// if (result == 1)
+//   PrintNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
+//       tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
 #endif
 }
 
