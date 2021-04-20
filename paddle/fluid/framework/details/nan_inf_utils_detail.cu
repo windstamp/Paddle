@@ -123,6 +123,7 @@ template <>
 template <typename T>
 void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
     typename std::enable_if<std::is_floating_point<T>::value>::type*) const {
+  LOG(WARNING) << "here";
   int print_num = 3;
 
   auto* dev_ctx = reinterpret_cast<platform::CUDADeviceContext*>(
@@ -137,6 +138,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   char* gpu_str_ptr = NULL;
 
   {
+    LOG(WARNING) << "here";
     auto& op_var2gpu_str_mutex = multi_op_var2gpu_str_mutex().at(dev_id);
     auto& op_var2gpu_str = multi_op_var2gpu_str().at(dev_id);
 
@@ -156,15 +158,18 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                             op_var));
 
 #ifdef __HIPCC__
+      LOG(WARNING) << "here";
       PADDLE_ENFORCE_CUDA_SUCCESS(
           hipMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
                          hipMemcpyHostToDevice, dev_ctx->stream()));
+      LOG(WARNING) << "here";
 #else
       PADDLE_ENFORCE_CUDA_SUCCESS(
           cudaMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
                           cudaMemcpyHostToDevice, dev_ctx->stream()));
 #endif
     } else {  // get
+      LOG(WARNING) << "here";
       auto iter = op_var2gpu_str.find(op_var);
       PADDLE_ENFORCE_EQ(iter != op_var2gpu_str.end(), true,
                         platform::errors::PreconditionNotMet(
@@ -172,6 +177,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                             "now can't find it",
                             op_var));
       gpu_str_ptr = reinterpret_cast<char*>(iter->second->ptr());
+      LOG(WARNING) << "here";
     }
   }
 
@@ -226,7 +232,9 @@ void tensor_check<platform::CUDADeviceContext>(const std::string& op_type,
   LOG(WARNING) << "place: " << place;
   TensorCheckerVisitor<platform::CUDADeviceContext> vistor(op_type, var_name,
                                                            tensor, place);
+  LOG(WARNING) << "here";
   VisitDataType(tensor.type(), vistor);
+  LOG(WARNING) << "here";
 }
 
 }  // namespace details
