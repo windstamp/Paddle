@@ -156,6 +156,8 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                             "op_var2gpu_str, but now failed",
                             op_var));
 
+      LOG(WARNING) << "gpu_str_ptr: " << &gpu_str_ptr;
+
 #ifdef __HIPCC__
       PADDLE_ENFORCE_CUDA_SUCCESS(
           hipMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
@@ -185,6 +187,12 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   size_t blocks =
       std::min(static_cast<size_t>(128),
                static_cast<size_t>((tensor_.numel() + threads - 1) / threads));
+
+  LOG(WARNING) << "blocks: " << blocks;
+  LOG(WARNING) << "threads: " << threads;
+  LOG(WARNING) << "tensor_: " << tensor_;
+  LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
+
 #ifdef __HIPCC__
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
