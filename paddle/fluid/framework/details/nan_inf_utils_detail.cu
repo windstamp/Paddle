@@ -55,7 +55,7 @@ static void InitMultiGPUOpVarMap() {
 }
 
 template <typename T>
-__global__ __forceinline__ void PrintNanInfKernel(const T* value,
+__global__ void PrintNanInfKernel(const T* value,
                                                   const size_t numel,
                                                   int print_num,
                                                   char* debug_info) {
