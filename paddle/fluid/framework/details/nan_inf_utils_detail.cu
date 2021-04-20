@@ -63,7 +63,7 @@ __device__ __forceinline__ void PrintNanInfKernel(const T* value,
 
   __shared__ unsigned int nan_count, inf_count, num_count;
   if (threadIdx.x == 0) nan_count = inf_count = num_count = 0;
-  __syncthreads;
+  __syncthreads();
 
   for (size_t i = tid; i < numel; i += blockDim.x * gridDim.x) {
     unsigned int count = 0;
@@ -80,7 +80,7 @@ __device__ __forceinline__ void PrintNanInfKernel(const T* value,
              static_cast<uint64_t>(i), static_cast<float>(value[i]));
     }
   }
-  __syncthreads;
+  __syncthreads();
 
 #ifdef __HIPCC__
   if (true && hipThreadIdx_x == 0) {
@@ -190,7 +190,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
 
   LOG(WARNING) << "blocks: " << blocks;
   LOG(WARNING) << "threads: " << threads;
-  LOG(WARNING) << "tensor_: " << tensor_;
+//  LOG(WARNING) << "tensor_: " << tensor_;
 // LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
 
 #ifdef __HIPCC__
