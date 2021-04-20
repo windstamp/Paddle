@@ -199,14 +199,14 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
                      print_num, gpu_str_ptr, &result);
   LOG(WARNING) << "result: " << result;
-  if (result == 0)
+  if (result == 1)
     hipLaunchKernelGGL(PrintNanInfKernel, dim3(blocks), dim3(threads), 0,
                        dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
                        print_num, gpu_str_ptr);
 #else
   CheckNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
       tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr, &result);
-  if (result == 0)
+  if (result == 1)
     PrintNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
         tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
 #endif
