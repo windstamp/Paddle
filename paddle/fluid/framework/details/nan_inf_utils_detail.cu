@@ -158,7 +158,9 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                             op_var));
 
 #ifdef __HIPCC__
-      LOG(WARNING) << "here";
+      LOG(WARNING) << "gpu_str_ptr" << gpu_str_ptr;
+      LOG(WARNING) << "iter->first.c_str()" << iter->first.c_str();
+      LOG(WARNING) << "op_var.length() + 1" << op_var.length() + 1;
       PADDLE_ENFORCE_CUDA_SUCCESS(
           hipMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
                          hipMemcpyHostToDevice, dev_ctx->stream()));
