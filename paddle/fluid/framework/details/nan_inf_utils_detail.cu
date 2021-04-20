@@ -219,6 +219,10 @@ void tensor_check<platform::CUDADeviceContext>(const std::string& op_type,
                                                const platform::Place& place) {
   std::call_once(init_multi_gpu_op_var_map_flag, InitMultiGPUOpVarMap);
 
+  LOG(WARNING) << "op_type: " << op_type;
+  LOG(WARNING) << "var_name: " << var_name;
+  LOG(WARNING) << "tensor: " << tensor;
+  LOG(WARNING) << "place: " << place;
   TensorCheckerVisitor<platform::CUDADeviceContext> vistor(op_type, var_name,
                                                            tensor, place);
   VisitDataType(tensor.type(), vistor);
