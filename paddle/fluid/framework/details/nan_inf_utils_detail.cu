@@ -98,7 +98,8 @@ __device__ __forceinline__ void PrintNanInfKernel(const T* value,
 // Resnet 2gpus speed test, no check 270 images/s, this check 229 images/s
 template <typename T>
 __global__ void CheckNanInfKernel(const T* value, const size_t numel,
-                                  int print_num, char* debug_info) {
+                                  int print_num, char* debug_info,
+                                  int* result) {
   /// step 1, judge wheater has nan or inf
   __shared__ volatile int has_nan_inf;
   if (threadIdx.x == 0) has_nan_inf = false;
@@ -115,9 +116,7 @@ __global__ void CheckNanInfKernel(const T* value, const size_t numel,
   __syncthreads();
 
   /// Note. different blocks may behave differently
-  if (!has_nan_inf) return;
-
-  PrintNanInfKernel(value, numel, print_num, debug_info);
+  if (!has_nan_inf) *result = 1;
 }
 
 template <>
@@ -185,13 +184,22 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   size_t blocks =
       std::min(static_cast<size_t>(128),
                static_cast<size_t>((tensor_.numel() + threads - 1) / threads));
+
+  int result = 0;
 #ifdef __HIPCC__
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
-                     print_num, gpu_str_ptr);
+                     print_num, gpu_str_ptr, &result);
+  if (result == 0)
+    hipLaunchKernelGGL(PrintNanInfKernel, dim3(blocks), dim3(threads), 0,
+                       dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
+                       print_num, gpu_str_ptr);
 #else
   CheckNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
-      tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
+      tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr, &result);
+  if (result == 0)
+    PrintNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
+        tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
 #endif
 }
 
