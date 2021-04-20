@@ -191,7 +191,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   LOG(WARNING) << "blocks: " << blocks;
   LOG(WARNING) << "threads: " << threads;
   LOG(WARNING) << "tensor_: " << tensor_;
-  LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
+// LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
 
 #ifdef __HIPCC__
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
