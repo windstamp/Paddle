@@ -186,6 +186,14 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
                static_cast<size_t>((tensor_.numel() + threads - 1) / threads));
 
   int result = 0;
+
+  LOG(WARNING) << "blocks: " << blocks;
+  LOG(WARNING) << "threads: " << threads;
+  LOG(WARNING) << "tensor_.data<T>(): " << tensor_.data<T>();
+  LOG(WARNING) << "tensor_.numel(): " << tensor_.numel();
+  LOG(WARNING) << "print_num: " << print_num;
+  LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
+
 #ifdef __HIPCC__
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
