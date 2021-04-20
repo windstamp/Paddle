@@ -189,8 +189,9 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
 
   LOG(WARNING) << "blocks: " << blocks;
   LOG(WARNING) << "threads: " << threads;
-  LOG(WARNING) << "tensor_.data<T>(): " << tensor_.data<T>();
-  LOG(WARNING) << "tensor_.numel(): " << tensor_.numel();
+  // LOG(WARNING) << "tensor_.data<T>(): " << tensor_.data<T>();
+  // LOG(WARNING) << "tensor_.numel(): " << tensor_.numel();
+  LOG(WARNING) << "tensor_: " << tensor_;
   LOG(WARNING) << "print_num: " << print_num;
   LOG(WARNING) << "gpu_str_ptr: " << gpu_str_ptr;
 
