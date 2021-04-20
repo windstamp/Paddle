@@ -218,6 +218,7 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
 #else
   CheckNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
       tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr, &result);
+  LOG(WARNING) << "result: " << result;
   if (result == 1)
     PrintNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
         tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
