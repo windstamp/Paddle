@@ -190,16 +190,23 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
 
   LOG(WARNING) << "blocks: " << blocks;
   LOG(WARNING) << "threads: " << threads;
+  LOG(WARNING) << "tensor_.data<T>(): " << tensor_.data<T>();
+  LOG(WARNING) << "tensor_.numel(): " << tensor_.numel();
   // LOG(WARNING) << "tensor_: " << tensor_;
+  LOG(WARNING) << "print_num: " << print_num;
   LOG(WARNING) << "gpu_str_ptr: " << &gpu_str_ptr;
 
 #ifdef __HIPCC__
+  LOG(WARNING) << "here";
   hipLaunchKernelGGL(CheckNanInfKernel, dim3(blocks), dim3(threads), 0,
                      dev_ctx->stream(), tensor_.data<T>(), tensor_.numel(),
                      print_num, gpu_str_ptr);
+  LOG(WARNING) << "here";
 #else
+  LOG(WARNING) << "here";
   CheckNanInfKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
       tensor_.data<T>(), tensor_.numel(), print_num, gpu_str_ptr);
+  LOG(WARNING) << "here";
 #endif
 }
 
@@ -210,9 +217,17 @@ void tensor_check<platform::CUDADeviceContext>(const std::string& op_type,
                                                const platform::Place& place) {
   std::call_once(init_multi_gpu_op_var_map_flag, InitMultiGPUOpVarMap);
 
+  LOG(WARNING) << "op_type: " << op_type;
+  LOG(WARNING) << "var_name: " << var_name;
+  LOG(WARNING) << "tensor.numel(): " << tensor.numel();
+  LOG(WARNING) << "place: " << place;
+  
   TensorCheckerVisitor<platform::CUDADeviceContext> vistor(op_type, var_name,
                                                            tensor, place);
+
+  LOG(WARNING) << "here";
   VisitDataType(tensor.type(), vistor);
+  LOG(WARNING) << "here";
 }
 
 }  // namespace details
