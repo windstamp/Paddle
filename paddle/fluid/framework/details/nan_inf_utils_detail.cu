@@ -137,6 +137,8 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
   std::string op_var = "[op=" + op_type_ + "] [tensor=" + var_name_ + "]";
   char* gpu_str_ptr = NULL;
 
+  LOG(WARNING) << "op_var: " << op_var;
+
   {
     auto& op_var2gpu_str_mutex = multi_op_var2gpu_str_mutex().at(dev_id);
     auto& op_var2gpu_str = multi_op_var2gpu_str().at(dev_id);
@@ -159,15 +161,20 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
       LOG(WARNING) << "gpu_str_ptr: " << &gpu_str_ptr;
 
 #ifdef __HIPCC__
+      LOG(WARNING) << "here";
       PADDLE_ENFORCE_CUDA_SUCCESS(
           hipMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
                          hipMemcpyHostToDevice, dev_ctx->stream()));
+      LOG(WARNING) << "here";
 #else
+      LOG(WARNING) << "here";
       PADDLE_ENFORCE_CUDA_SUCCESS(
           cudaMemcpyAsync(gpu_str_ptr, iter->first.c_str(), op_var.length() + 1,
                           cudaMemcpyHostToDevice, dev_ctx->stream()));
+      LOG(WARNING) << "here";
 #endif
     } else {  // get
+      LOG(WARNING) << "here";
       auto iter = op_var2gpu_str.find(op_var);
       PADDLE_ENFORCE_EQ(iter != op_var2gpu_str.end(), true,
                         platform::errors::PreconditionNotMet(
@@ -180,12 +187,12 @@ void TensorCheckerVisitor<platform::CUDADeviceContext>::apply(
 
 #ifdef __HIPCC__
   // HIP will throw GPU memory access fault if threads > 256
-  const size_t threads = 256;
+  const size_t threads = 128;
 #else
   const size_t threads = 1024;
 #endif
   size_t blocks =
-      std::min(static_cast<size_t>(128),
+      std::min(static_cast<size_t>(64),
                static_cast<size_t>((tensor_.numel() + threads - 1) / threads));
 
   LOG(WARNING) << "blocks: " << blocks;
