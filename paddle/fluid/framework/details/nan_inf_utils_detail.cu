@@ -55,7 +55,7 @@ static void InitMultiGPUOpVarMap() {
 }
 
 template <typename T>
-__device__ __forceinline__ void PrintNanInfKernel(const T* value,
+__device__ __forceinline__ void PrintNanInfKernel(const bool has_nan_inf, const T* value,
                                                   const size_t numel,
                                                   int print_num,
                                                   char* debug_info) {
@@ -115,9 +115,9 @@ __global__ void CheckNanInfKernel(const T* value, const size_t numel,
   __syncthreads();
 
   /// Note. different blocks may behave differently
-  if (!has_nan_inf) return;
+  // if (!has_nan_inf) return;
 
-  PrintNanInfKernel(value, numel, print_num, debug_info);
+  PrintNanInfKernel(has_nan_inf, value, numel, print_num, debug_info);
 }
 
 template <>
