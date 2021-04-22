@@ -1164,15 +1164,15 @@ DEFINE_CUDA_STATUS_TYPE(ncclResult_t, ncclSuccess);
 
 #define PADDLE_ENFORCE_CUDA_SUCCESS(COND)                      \
   do {                                                         \
-    auto __cond__ = (COND);                                    \
-    using __CUDA_STATUS_TYPE__ = decltype(__cond__);           \
+    LOG(WARNING) << "Pivot1"; auto __cond__ = (COND); LOG(WARNING) << "Pivot2";                                     \
+    using __CUDA_STATUS_TYPE__ = decltype(__cond__); LOG(WARNING) << "Pivot3";          \
     constexpr auto __success_type__ =                          \
         ::paddle::platform::details::CudaStatusType<           \
-            __CUDA_STATUS_TYPE__>::kSuccess;                   \
+            __CUDA_STATUS_TYPE__>::kSuccess; LOG(WARNING) << "Pivot4";                  \
     if (UNLIKELY(__cond__ != __success_type__)) {              \
-      auto __summary__ = ::paddle::platform::errors::External( \
-          ::paddle::platform::build_rocm_error_msg(__cond__)); \
-      __THROW_ERROR_INTERNAL__(__summary__);                   \
+      LOG(WARNING) << "Pivot5";  auto __summary__ = ::paddle::platform::errors::External( \
+          ::paddle::platform::build_rocm_error_msg(__cond__)); LOG(WARNING) << "Pivot6"; \
+      LOG(WARNING) << "Pivot7"; __THROW_ERROR_INTERNAL__(__summary__);  LOG(WARNING) << "Pivot8";                  \
     }                                                          \
   } while (0)
 
