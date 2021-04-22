@@ -108,8 +108,8 @@ if __name__ == '__main__':
             check(use_cuda=True)
             assert False
         except Exception as e:
-            print('line 111', e)
-            print('line 112', type(e))
+            print('line 111: ', e)
+            print('line 112: ', type(e))
             # Note. Enforce in cuda kernel may not catch in paddle, and
             # Exception type will be RuntimeError
             assert type(e) == OSError or type(e) == RuntimeError
@@ -117,6 +117,6 @@ if __name__ == '__main__':
         check(use_cuda=False)
         assert False
     except Exception as e:
-        print('line 120', e)
-        print('line 121', type(e))
+        print('line 120: ', e)
+        print('line 121: ', type(e))
         assert type(e) == RuntimeError

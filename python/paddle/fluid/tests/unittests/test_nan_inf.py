@@ -45,8 +45,12 @@ class TestNanInf(unittest.TestCase):
         out, err = proc.communicate()
         returncode = proc.returncode
 
-        print(out)
-        print(err)
+        print('line 48: ', out)
+        print('line 49: ', err)
+        print('line 50: ', returncode)
+        print('line 51: ',
+              (out + err
+               ).find('There are `nan` or `inf` in tensor'.encode()) != -1)
 
         assert returncode == 0
         # in python3, type(out+err) is 'bytes', need use encode
