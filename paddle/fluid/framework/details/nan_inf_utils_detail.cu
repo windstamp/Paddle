@@ -86,12 +86,16 @@ __device__ __forceinline__ void PrintNanInfKernel(const T* value,
   if (true && hipThreadIdx_x == 0) {
     printf("In block %d, there has %u,%u,%u nan,inf,num\n", hipBlockIdx_x,
            nan_count, inf_count, num_count);
+    printf(
+        "Error: %s:%d Assertion false failed. ===ERROR: in %s find nan or "
+        "inf===\n",
+        __FILE__, __LINE__, debug_info);
 #else
   if (true && threadIdx.x == 0) {
     printf("In block %d, there has %u,%u,%u nan,inf,num\n", blockIdx.x,
            nan_count, inf_count, num_count);
-#endif
     PADDLE_ENFORCE(false, "===ERROR: in %s find nan or inf===", debug_info);
+#endif
   }
 }
 

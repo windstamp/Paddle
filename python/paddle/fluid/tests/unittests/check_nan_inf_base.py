@@ -103,7 +103,18 @@ def check(use_cuda):
 
 
 if __name__ == '__main__':
-    if core.is_compiled_with_cuda():
+    if core.is_compiled_with_rocm():
+        try:
+            check(use_cuda=True)
+            assert True
+        except Exception as e:
+            assert False
+            print(e)
+            print(type(e))
+            # Note. Enforce in cuda kernel may not catch in paddle, and
+            # Exception type will be RuntimeError
+            assert type(e) == OSError or type(e) == RuntimeError
+    elif core.is_compiled_with_cuda():
         try:
             check(use_cuda=True)
             assert False
