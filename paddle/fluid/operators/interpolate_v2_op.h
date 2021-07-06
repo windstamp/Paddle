@@ -1493,6 +1493,8 @@ class InterpolateV2Kernel : public framework::OpKernel<T> {
     auto* input = ctx.Input<Tensor>("X");
     auto* output = ctx.Output<Tensor>("Out");
 
+    LOG(WARNING) << "input: " << input;
+
     auto input_dims = input->dims();
     if (input_dims.size() == 3) {  // 1D interpolation
       Interpolate1DCPUFwd<T>(ctx, *input, output);

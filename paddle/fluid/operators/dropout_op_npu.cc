@@ -13,27 +13,28 @@
 #include <string>
 #include <vector>
 
-#include "paddle/fluid/operators/interpolate_v2_op.h"
+#include "paddle/fluid/operators/dropout_op.h"
 #include "paddle/fluid/operators/npu_op_runner.h"
 namespace paddle {
 namespace operators {
 
 using Tensor = framework::Tensor;
+using LoDTensor = framework::LoDTensor;
 
 template <typename DeviceContext, typename T>
-class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
+class DropoutNPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
-    auto* x = ctx.Input<Tensor>("X");
-    auto* outSize = ctx.Input<Tensor>("OutSize");
-    auto* out = ctx.Output<Tensor>("Out");
+    auto* x = ctx.Input<LoDTensor>("X");
+    auto* out = ctx.Output<LoDTensor>("Out");
+    float dropout_prob = ctx.Attr<float>("dropout_prob");
+    // LOG(WARNING) << "dropout_prob: " << dropout_prob;
 
-    bool align_corners = ctx.Attr<bool>("align_corners");
-    int align_mode = ctx.Attr<int>("align_mode");
+    // std::ostringstream oss;
+    // SerializeToStream(oss, *x);
+    // LOG(WARNING) << "x: " << oss.str();
 
     out->mutable_data<T>(ctx.GetPlace());
-
-    bool half_pixel_centers = (align_mode == 1) ? false : true;
 
     int numel = x->numel();
     LOG(WARNING) << "numel: " << numel;
@@ -41,6 +42,7 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     for (int i = 0; i < numel; ++i) {
       // oss2 << x->data<T>()[i] << ",";
       // printf("%f, ", x->data<T>()[i]);
+      printf("%f, ", *(x->data<T>()));
     }
 
     LOG(WARNING) << "x: " << x;
@@ -48,16 +50,11 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     // LOG(WARNING) << "x->data: " << oss2.str();
     LOG(WARNING) << "out: " << out;
 
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out}, {}};
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
-    // {{"align_corners", align_corners}});
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
-    // {{"align_corners", align_corners}, {"half_pixel_centers",
-    // half_pixel_centers}});
-    const auto& runner =
-        NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
-                    {{"align_corners", align_corners},
-                     {"half_pixel_centers", half_pixel_centers}});
+    const auto& runner = NpuOpRunner("Dropout",
+                                     {
+                                         *x,
+                                     },
+                                     {*out}, {{"dropout_ratio", dropout_prob}});
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
@@ -69,27 +66,16 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
 };
 
 template <typename DeviceContext, typename T>
-class BilinearInterpV2GradNPUKernel : public framework::OpKernel<T> {
+class DropoutGradNPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
     auto* x = ctx.Input<Tensor>("X");
-    auto* outSize = ctx.Input<Tensor>("OutSize");
     auto* dout = ctx.Input<Tensor>(framework::GradVarName("Out"));
     auto* dx = ctx.Output<Tensor>(framework::GradVarName("X"));
 
-    bool align_corners = ctx.Attr<bool>("align_corners");
-    int align_mode = ctx.Attr<int>("align_mode");
-
     dx->mutable_data<T>(ctx.GetPlace());
 
-    bool half_pixel_centers = (align_mode == 1) ? false : true;
-
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2Grad", {*x, *outSize,
-    // *dout}, {*dx}, {});
-    const auto& runner =
-        NpuOpRunner("ResizeBilinearV2Grad", {*x, *outSize, *dout}, {*dx},
-                    {{"align_corners", align_corners},
-                     {"half_pixel_centers", half_pixel_centers}});
+    const auto& runner = NpuOpRunner("DropoutGrad", {*x, *dout}, {*dx}, {});
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
@@ -103,12 +89,11 @@ class BilinearInterpV2GradNPUKernel : public framework::OpKernel<T> {
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 REGISTER_OP_NPU_KERNEL(
-    bilinear_interp_v2,
-    ops::BilinearInterpV2NPUKernel<plat::NPUDeviceContext, float>,
-    // ops::BilinearInterpV2NPUKernel<plat::NPUDeviceContext, double>,
-    ops::BilinearInterpV2NPUKernel<plat::NPUDeviceContext, plat::float16>);
-REGISTER_OP_NPU_KERNEL(
-    bilinear_interp_v2_grad,
-    ops::BilinearInterpV2GradNPUKernel<plat::NPUDeviceContext, float>,
-    // ops::BilinearInterpV2GradNPUKernel<plat::NPUDeviceContext, double>,
-    ops::BilinearInterpV2GradNPUKernel<plat::NPUDeviceContext, plat::float16>);
+    dropout, ops::DropoutNPUKernel<plat::NPUDeviceContext, float>,
+    // ops::DropoutNPUKernel<plat::NPUDeviceContext, double>,
+    ops::DropoutNPUKernel<plat::NPUDeviceContext, plat::float16>);
+// REGISTER_OP_NPU_KERNEL(
+//     dropout_grad,
+//     ops::DropoutGradNPUKernel<plat::NPUDeviceContext, float>,
+//     // ops::DropoutGradNPUKernel<plat::NPUDeviceContext, double>,
+//     ops::DropoutGradNPUKernel<plat::NPUDeviceContext, plat::float16>);
