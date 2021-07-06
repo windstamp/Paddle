@@ -43,9 +43,11 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
 
     int numel = x->numel();
     LOG(WARNING) << "x numel: " << numel;
+    LOG(WARNING) << "outSize numel: " << outSize->numel();
     LOG(WARNING) << "out numel: " << out->numel();
     LOG(WARNING) << "x dims: " << x->dims();
     LOG(WARNING) << "out dims: " << out->dims();
+    LOG(WARNING) << "outSize dims: " << outSize->dims();
 
     // std::ostringstream oss2;
     // for (int i = 0; i < numel; ++i) {
@@ -57,6 +59,7 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
 
     out->mutable_data<T>(ctx.GetPlace());
 
+    LOG(WARNING) << "out: " << out;
     LOG(WARNING) << "out numel: " << out->numel();
     LOG(WARNING) << "out dims: " << out->dims();
 
@@ -66,16 +69,17 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     //                                  },
     //                                  {*out}, {});
 
+    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
+    // {{"align_corners", align_corners}});
+
     const auto& runner =
         NpuOpRunner("ResizeBilinearV2",
                     {
                         *x,
                     },
-                    {*out}, {{"align_corners", align_corners}});
+                    {*out}, {{"align_corners", align_corners},
+                             {"half_pixel_centers", half_pixel_centers}});
 
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
-    // {{"align_corners", align_corners}, {"half_pixel_centers",
-    // half_pixel_centers}});
     // const auto& runner =
     //     NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
     //                 {{"align_corners", align_corners},
