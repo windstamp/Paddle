@@ -32,18 +32,22 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     // int align_mode = ctx.Attr<int>("align_mode");
 
     LOG(WARNING) << "x: " << x;
-
-    out->mutable_data<T>(ctx.GetPlace());
-
-    // bool half_pixel_centers = (align_mode == 1) ? false : true;
+    LOG(WARNING) << "out: " << out;
 
     int numel = x->numel();
-    LOG(WARNING) << "numel: " << numel;
+    LOG(WARNING) << "x numel: " << numel;
+    LOG(WARNING) << "out numel: " << out->numel();
+    LOG(WARNING) << "x dims: " << x->dims();
+    LOG(WARNING) << "out dims: " << out->dims();
     // std::ostringstream oss2;
     for (int i = 0; i < numel; ++i) {
       // oss2 << x->data<T>()[i] << ",";
       // printf("%f, ", x->data<T>()[i]);
     }
+
+    out->mutable_data<T>(ctx.GetPlace());
+
+    // bool half_pixel_centers = (align_mode == 1) ? false : true;
 
     LOG(WARNING) << "x: " << x;
     // LOG(WARNING) << "x->data: " << x->data<T>();
