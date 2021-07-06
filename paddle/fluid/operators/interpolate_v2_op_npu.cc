@@ -56,6 +56,7 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     // }
 
     out->Resize(x->dims());
+    // out->Resize(framework::make_ddim({2, 3, 3, 3}));
 
     out->mutable_data<T>(ctx.GetPlace());
 
@@ -72,18 +73,18 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
     // {{"align_corners", align_corners}});
 
-    const auto& runner =
-        NpuOpRunner("ResizeBilinearV2",
-                    {
-                        *x,
-                    },
-                    {*out}, {{"align_corners", align_corners},
-                             {"half_pixel_centers", half_pixel_centers}});
-
     // const auto& runner =
-    //     NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
-    //                 {{"align_corners", align_corners},
-    //                  {"half_pixel_centers", half_pixel_centers}});
+    //     NpuOpRunner("ResizeBilinearV2",
+    //                 {
+    //                     *x,
+    //                 },
+    //                 {*out}, {{"align_corners", align_corners},
+    //                          {"half_pixel_centers", half_pixel_centers}});
+
+    const auto& runner =
+        NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
+                    {{"align_corners", align_corners},
+                     {"half_pixel_centers", half_pixel_centers}});
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()

@@ -73,6 +73,68 @@ class DropoutNPUKernel : public framework::OpKernel<T> {
 };
 
 template <typename DeviceContext, typename T>
+class DropoutV2NPUKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& ctx) const override {
+    auto* x = ctx.Input<LoDTensor>("X");
+    auto* seed = ctx.Input<LoDTensor>("Seed");
+    auto* out = ctx.Output<LoDTensor>("Out");
+    auto* mask = ctx.Output<LoDTensor>("Mask");
+    float dropout_prob = ctx.Attr<float>("dropout_prob");
+    LOG(WARNING) << "dropout_prob: " << dropout_prob;
+
+    LOG(WARNING) << "x: " << x;
+    LOG(WARNING) << "seed: " << seed;
+    LOG(WARNING) << "out: " << out;
+    LOG(WARNING) << "mask: " << mask;
+
+    LOG(WARNING) << "x numel: " << x->numel();
+    LOG(WARNING) << "seed numel: " << seed->numel();
+    LOG(WARNING) << "out numel: " << out->numel();
+    LOG(WARNING) << "mask numel: " << mask->numel();
+
+    LOG(WARNING) << "x dims: " << x->dims();
+    LOG(WARNING) << "seed dims: " << seed->dims();
+    LOG(WARNING) << "out dims: " << out->dims();
+    LOG(WARNING) << "mask dims: " << mask->dims();
+
+    out->mutable_data<T>(ctx.GetPlace());
+    mask->mutable_data<T>(ctx.GetPlace());
+
+    LOG(WARNING) << "out: " << out;
+    LOG(WARNING) << "mask: " << mask;
+
+    // const auto& runner = NpuOpRunner("DropoutV2",
+    //                                  {
+    //                                      *x, *seed,
+    //                                  },
+    //                                  {*out, *mask}, {{"p", dropout_prob}});
+
+    framework::Tensor new_seed;
+    new_seed.Resize(seed->dims());
+    new_seed.mutable_data<T>(ctx.GetPlace());
+
+    LOG(WARNING) << "seed: " << &seed;
+    LOG(WARNING) << "seed numel: " << seed->numel();
+    LOG(WARNING) << "seed dims: " << seed->dims();
+
+    const auto& runner =
+        NpuOpRunner("DropoutV2",
+                    {
+                        *x, *seed,
+                    },
+                    {*out, *mask, new_seed}, {{"p", dropout_prob}});
+
+    auto stream =
+        ctx.template device_context<paddle::platform::NPUDeviceContext>()
+            .stream();
+    runner.Run(stream);
+
+    LOG(WARNING) << "out: " << out;
+  }
+};
+
+template <typename DeviceContext, typename T>
 class DropoutGradNPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
@@ -96,9 +158,9 @@ class DropoutGradNPUKernel : public framework::OpKernel<T> {
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 REGISTER_OP_NPU_KERNEL(
-    dropout, ops::DropoutNPUKernel<plat::NPUDeviceContext, float>,
-    // ops::DropoutNPUKernel<plat::NPUDeviceContext, double>,
-    ops::DropoutNPUKernel<plat::NPUDeviceContext, plat::float16>);
+    dropout, ops::DropoutV2NPUKernel<plat::NPUDeviceContext, float>,
+    // ops::DropoutV2NPUKernel<plat::NPUDeviceContext, double>,
+    ops::DropoutV2NPUKernel<plat::NPUDeviceContext, plat::float16>);
 // REGISTER_OP_NPU_KERNEL(
 //     dropout_grad,
 //     ops::DropoutGradNPUKernel<plat::NPUDeviceContext, float>,

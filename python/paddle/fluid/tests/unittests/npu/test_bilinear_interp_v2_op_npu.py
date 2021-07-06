@@ -105,6 +105,8 @@ def bilinear_interp_np(input,
     return out.astype(input.dtype)
 
 
+@unittest.skipIf(not paddle.is_compiled_with_npu(),
+                 "core is not compiled with NPU")
 class TestNPUBilinearInterpV2Op(OpTest):
     def setUp(self):
         self.op_type = "bilinear_interp_v2"
@@ -141,7 +143,6 @@ class TestNPUBilinearInterpV2Op(OpTest):
         output_np = bilinear_interp_np(
             input_np, out_h, out_w, 0, 0, self.out_size, self.actual_shape,
             self.align_corners, self.align_mode, self.data_layout)
-        # print('output_np: ', output_np)
         self.inputs = {'X': input_np}
         if self.out_size is not None:
             self.inputs['OutSize'] = self.out_size
@@ -170,7 +171,6 @@ class TestNPUBilinearInterpV2Op(OpTest):
 
 #    def test_check_grad(self):
 #        self.check_grad_with_place(self.place, ['X'], 'Out', in_place=True, check_dygraph=False)
-#        # self.check_grad_with_place(self.place, ['X'], 'Out', check_dygraph=False)
 
     def set_npu(self):
         self.__class__.use_npu = True
@@ -178,7 +178,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
 
     def init_test_case(self):
         self.interp_method = 'bilinear'
-        self.input_shape = [2, 2, 2, 2]
+        self.input_shape = [2, 3, 5, 5]
         self.out_h = 2
         self.out_w = 2
         self.scale = 0.
