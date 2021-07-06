@@ -27,6 +27,15 @@ class AbsNPUKernel : public framework::OpKernel<T> {
     auto* x = ctx.Input<Tensor>("X");
     auto* out = ctx.Output<Tensor>("Out");
 
+    LOG(WARNING) << "x: " << x;
+    LOG(WARNING) << "out: " << out;
+
+    int numel = x->numel();
+    LOG(WARNING) << "x numel: " << numel;
+    LOG(WARNING) << "out numel: " << out->numel();
+    LOG(WARNING) << "x dims: " << x->dims();
+    LOG(WARNING) << "out dims: " << out->dims();
+
     out->mutable_data<T>(ctx.GetPlace());
 
     LOG(WARNING) << "x: " << x;

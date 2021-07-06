@@ -43,7 +43,7 @@ class TestDropoutOp(OpTest):
 
     def set_npu(self):
         self.__class__.use_npu = True
-        self.place = paddle.NPUPlace(0)
+        self.place = paddle.NPUPlace(5)
 
 if __name__ == "__main__":
     unittest.main()

@@ -174,7 +174,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
 
     def set_npu(self):
         self.__class__.use_npu = True
-        self.place = paddle.NPUPlace(0)
+        self.place = paddle.NPUPlace(5)
 
     def init_test_case(self):
         self.interp_method = 'bilinear'

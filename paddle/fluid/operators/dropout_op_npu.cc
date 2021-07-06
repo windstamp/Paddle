@@ -34,16 +34,23 @@ class DropoutNPUKernel : public framework::OpKernel<T> {
     // SerializeToStream(oss, *x);
     // LOG(WARNING) << "x: " << oss.str();
 
-    out->mutable_data<T>(ctx.GetPlace());
+    LOG(WARNING) << "x: " << x;
+    LOG(WARNING) << "out: " << out;
 
     int numel = x->numel();
-    LOG(WARNING) << "numel: " << numel;
+    LOG(WARNING) << "x numel: " << numel;
+    LOG(WARNING) << "out numel: " << out->numel();
+    LOG(WARNING) << "x dims: " << x->dims();
+    LOG(WARNING) << "out dims: " << out->dims();
+
     // std::ostringstream oss2;
-    for (int i = 0; i < numel; ++i) {
-      // oss2 << x->data<T>()[i] << ",";
-      // printf("%f, ", x->data<T>()[i]);
-      // printf("%f, ", *(x->data<T>()));
-    }
+    // for (int i = 0; i < numel; ++i) {
+    //   // oss2 << x->data<T>()[i] << ",";
+    //   // printf("%f, ", x->data<T>()[i]);
+    //   // printf("%f, ", *(x->data<T>()));
+    // }
+
+    out->mutable_data<T>(ctx.GetPlace());
 
     LOG(WARNING) << "x: " << x;
     LOG(WARNING) << "x->data: " << x->data<T>();
