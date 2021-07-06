@@ -36,10 +36,10 @@ class TestDropoutOp(OpTest):
         self.outputs = {'Out': self.inputs['X']}
 
     def test_check_output(self):
-        self.check_output_with_place(self.place)
+        self.check_output_with_place(self.place, check_dygraph=False)
 
 #    def test_check_grad(self):
-#        self.check_grad_with_place(self.place, ['X'], 'Out')
+#        self.check_grad_with_place(self.place, ['X'], 'Out', check_dygraph=False)
 
     def set_npu(self):
         self.__class__.use_npu = True

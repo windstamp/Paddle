@@ -29,6 +29,9 @@ class AbsNPUKernel : public framework::OpKernel<T> {
 
     out->mutable_data<T>(ctx.GetPlace());
 
+    LOG(WARNING) << "x: " << x;
+    LOG(WARNING) << "out: " << out;
+
     const auto& runner = NpuOpRunner("Abs",
                                      {
                                          *x,
@@ -39,6 +42,8 @@ class AbsNPUKernel : public framework::OpKernel<T> {
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
             .stream();
     runner.Run(stream);
+
+    LOG(WARNING) << "out: " << out;
   }
 };
 

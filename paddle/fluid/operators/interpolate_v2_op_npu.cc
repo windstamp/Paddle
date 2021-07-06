@@ -25,15 +25,17 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
     auto* x = ctx.Input<Tensor>("X");
-    auto* outSize = ctx.Input<Tensor>("OutSize");
+    // auto* outSize = ctx.Input<Tensor>("OutSize");
     auto* out = ctx.Output<Tensor>("Out");
 
-    bool align_corners = ctx.Attr<bool>("align_corners");
-    int align_mode = ctx.Attr<int>("align_mode");
+    // bool align_corners = ctx.Attr<bool>("align_corners");
+    // int align_mode = ctx.Attr<int>("align_mode");
+
+    LOG(WARNING) << "x: " << x;
 
     out->mutable_data<T>(ctx.GetPlace());
 
-    bool half_pixel_centers = (align_mode == 1) ? false : true;
+    // bool half_pixel_centers = (align_mode == 1) ? false : true;
 
     int numel = x->numel();
     LOG(WARNING) << "numel: " << numel;
@@ -44,20 +46,24 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     }
 
     LOG(WARNING) << "x: " << x;
-    LOG(WARNING) << "x->data: " << x->data<T>();
+    // LOG(WARNING) << "x->data: " << x->data<T>();
     // LOG(WARNING) << "x->data: " << oss2.str();
     LOG(WARNING) << "out: " << out;
 
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out}, {}};
+    const auto& runner = NpuOpRunner("ResizeBilinearV2",
+                                     {
+                                         *x,
+                                     },
+                                     {*out}, {});
     // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
     // {{"align_corners", align_corners}});
     // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
     // {{"align_corners", align_corners}, {"half_pixel_centers",
     // half_pixel_centers}});
-    const auto& runner =
-        NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
-                    {{"align_corners", align_corners},
-                     {"half_pixel_centers", half_pixel_centers}});
+    // const auto& runner =
+    //     NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
+    //                 {{"align_corners", align_corners},
+    //                  {"half_pixel_centers", half_pixel_centers}});
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()

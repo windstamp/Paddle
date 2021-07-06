@@ -113,7 +113,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.actual_shape = None
         self.data_layout = 'NCHW'
         self.init_test_case()
-        input_np = np.random.random(self.input_shape).astype("float64")
+        input_np = np.random.random(self.input_shape).astype("float32")
 
         if self.data_layout == "NCHW":
             in_h = self.input_shape[2]
@@ -141,7 +141,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
         output_np = bilinear_interp_np(
             input_np, out_h, out_w, 0, 0, self.out_size, self.actual_shape,
             self.align_corners, self.align_mode, self.data_layout)
-        print('output_np: ', output_np)
+        # print('output_np: ', output_np)
         self.inputs = {'X': input_np}
         if self.out_size is not None:
             self.inputs['OutSize'] = self.out_size
@@ -166,11 +166,11 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.outputs = {'Out': output_np}
 
     def test_check_output(self):
-        self.check_output_with_place(self.place)
+        self.check_output_with_place(self.place, check_dygraph=False)
 
 #    def test_check_grad(self):
-#        self.check_grad_with_place(self.place, ['X'], 'Out', in_place=True)
-#        # self.check_grad_with_place(self.place, ['X'], 'Out')
+#        self.check_grad_with_place(self.place, ['X'], 'Out', in_place=True, check_dygraph=False)
+#        # self.check_grad_with_place(self.place, ['X'], 'Out', check_dygraph=False)
 
     def set_npu(self):
         self.__class__.use_npu = True
@@ -178,7 +178,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
 
     def init_test_case(self):
         self.interp_method = 'bilinear'
-        self.input_shape = [2, 3, 5, 5]
+        self.input_shape = [2, 2, 2, 2]
         self.out_h = 2
         self.out_w = 2
         self.scale = 0.

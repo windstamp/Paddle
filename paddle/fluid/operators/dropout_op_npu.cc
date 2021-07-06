@@ -42,7 +42,7 @@ class DropoutNPUKernel : public framework::OpKernel<T> {
     for (int i = 0; i < numel; ++i) {
       // oss2 << x->data<T>()[i] << ",";
       // printf("%f, ", x->data<T>()[i]);
-      printf("%f, ", *(x->data<T>()));
+      // printf("%f, ", *(x->data<T>()));
     }
 
     LOG(WARNING) << "x: " << x;
