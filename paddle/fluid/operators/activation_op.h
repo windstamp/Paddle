@@ -243,6 +243,7 @@ template <typename T>
 struct SigmoidFunctor : public BaseActivationFunctor<T> {
   template <typename Device, typename X, typename Out>
   void operator()(Device d, X x, Out out) const {
+    LOG(WARNING) << "cpu";
     out.device(d) = static_cast<T>(1) / (static_cast<T>(1) + (-x).exp());
   }
 };
@@ -252,6 +253,7 @@ struct SigmoidGradFunctor : public BaseActivationFunctor<T> {
   template <typename Device, typename X, typename Out, typename dOut,
             typename dX>
   void operator()(Device d, X x, Out out, dOut dout, dX dx) const {
+    LOG(WARNING) << "cpu";
     dx.device(d) = dout * out * (static_cast<T>(1) - out);
   }
 

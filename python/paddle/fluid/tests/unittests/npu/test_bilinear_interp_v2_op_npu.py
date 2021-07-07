@@ -167,10 +167,11 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.outputs = {'Out': output_np}
 
     def test_check_output(self):
-        self.check_output_with_place(self.place, check_dygraph=False)
+        self.check_output()
+        # self.check_output_with_place(self.place, check_dygraph=False)
 
-#    def test_check_grad(self):
-#        self.check_grad_with_place(self.place, ['X'], 'Out', in_place=True, check_dygraph=False)
+    #    def test_check_grad(self):
+    #        self.check_grad_with_place(self.place, ['X'], 'Out', in_place=True, check_dygraph=False)
 
     def set_npu(self):
         self.__class__.use_npu = True
@@ -185,6 +186,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.out_size = np.array([3, 3]).astype("int32")
         self.align_corners = True
         self.align_mode = 1
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,11 +57,13 @@ class DropoutNPUKernel : public framework::OpKernel<T> {
     // LOG(WARNING) << "x->data: " << oss2.str();
     LOG(WARNING) << "out: " << out;
 
+    framework::NPUAttributeMap attr_input = {{"dropout_ratio", dropout_prob}};
+
     const auto& runner = NpuOpRunner("Dropout",
                                      {
                                          *x,
                                      },
-                                     {*out}, {{"dropout_ratio", dropout_prob}});
+                                     {*out}, attr_input);
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
@@ -118,12 +120,13 @@ class DropoutV2NPUKernel : public framework::OpKernel<T> {
     LOG(WARNING) << "seed numel: " << seed->numel();
     LOG(WARNING) << "seed dims: " << seed->dims();
 
-    const auto& runner =
-        NpuOpRunner("DropoutV2",
-                    {
-                        *x, *seed,
-                    },
-                    {*out, *mask, new_seed}, {{"p", dropout_prob}});
+    framework::NPUAttributeMap attr_input = {{"p", dropout_prob}};
+
+    const auto& runner = NpuOpRunner("DropoutV2",
+                                     {
+                                         *x, *seed,
+                                     },
+                                     {*out, *mask, new_seed}, attr_input);
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()

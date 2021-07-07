@@ -27,6 +27,8 @@ template <typename DeviceContext, typename T>
 class SigmoidCrossEntropyWithLogitsKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext &context) const override {
+    LOG(WARNING) << "cpu forward";
+
     const Tensor *X = context.Input<Tensor>("X");
     const Tensor *Labels = context.Input<Tensor>("Label");
     Tensor *Out = context.Output<Tensor>("Out");
@@ -69,6 +71,8 @@ template <typename DeviceContext, typename T>
 class SigmoidCrossEntropyWithLogitsGradKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext &context) const override {
+    LOG(WARNING) << "cpu backward";
+
     const Tensor *X = context.Input<Tensor>("X");
     const Tensor *Labels = context.Input<Tensor>("Label");
     const Tensor *dOut = context.Input<Tensor>(framework::GradVarName("Out"));

@@ -94,6 +94,8 @@ class CPUDropoutKernel : public framework::OpKernel<T> {
     auto* y_data = y->mutable_data<T>(context.GetPlace());
     float dropout_prob = context.Attr<float>("dropout_prob");
 
+    LOG(WARNING) << "x: " << x;
+
     auto& dropout_implementation =
         context.Attr<std::string>("dropout_implementation");
     bool upscale_in_train = (dropout_implementation == "upscale_in_train");

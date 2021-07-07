@@ -64,27 +64,31 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     LOG(WARNING) << "out numel: " << out->numel();
     LOG(WARNING) << "out dims: " << out->dims();
 
+    // framework::NPUAttributeMap attr_input = {};
+    // framework::NPUAttributeMap attr_input = {{"align_corners",
+    // align_corners}};
+    framework::NPUAttributeMap attr_input = {
+        {"align_corners", align_corners},
+        {"half_pixel_centers", half_pixel_centers}};
+
     // const auto& runner = NpuOpRunner("ResizeBilinearV2",
     //                                  {
     //                                      *x,
     //                                  },
-    //                                  {*out}, {});
+    //                                  {*out}, attr_input);
 
     // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
-    // {{"align_corners", align_corners}});
+    // attr_input);
 
     // const auto& runner =
     //     NpuOpRunner("ResizeBilinearV2",
     //                 {
     //                     *x,
     //                 },
-    //                 {*out}, {{"align_corners", align_corners},
-    //                          {"half_pixel_centers", half_pixel_centers}});
+    //                 {*out}, attr_input);
 
     const auto& runner =
-        NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out},
-                    {{"align_corners", align_corners},
-                     {"half_pixel_centers", half_pixel_centers}});
+        NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out}, attr_input);
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
@@ -111,12 +115,18 @@ class BilinearInterpV2GradNPUKernel : public framework::OpKernel<T> {
 
     bool half_pixel_centers = (align_mode == 1) ? false : true;
 
+    // framework::NPUAttributeMap attr_input = {};
+    // framework::NPUAttributeMap attr_input = {{"align_corners",
+    // align_corners}};
+    framework::NPUAttributeMap attr_input = {
+        {"align_corners", align_corners},
+        {"half_pixel_centers", half_pixel_centers}};
+
     // const auto& runner = NpuOpRunner("ResizeBilinearV2Grad", {*x, *outSize,
-    // *dout}, {*dx}, {});
-    const auto& runner =
-        NpuOpRunner("ResizeBilinearV2Grad", {*x, *outSize, *dout}, {*dx},
-                    {{"align_corners", align_corners},
-                     {"half_pixel_centers", half_pixel_centers}});
+    // *dout}, {*dx}, attr_input);
+
+    const auto& runner = NpuOpRunner("ResizeBilinearV2Grad",
+                                     {*x, *outSize, *dout}, {*dx}, attr_input);
 
     auto stream =
         ctx.template device_context<paddle::platform::NPUDeviceContext>()
