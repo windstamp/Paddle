@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "paddle/fluid/operators/dropout_op.h"
 #include "paddle/fluid/operators/npu_op_runner.h"
+#include "paddle/fluid/operators/sigmoid_cross_entropy_with_logits_op.h"
 namespace paddle {
 namespace operators {
 
