@@ -55,7 +55,7 @@ class TestNPUDropoutOpWithSeed(OpTest):
         self.inputs = {
             "X": np.random.random((32, 64)).astype("float32"),
             "Seed": np.asarray(
-                [12], dtype="int32")
+                [12.5], dtype="float32")
         }
         self.attrs = {'dropout_prob': 0.35, }
         self.outputs = {
