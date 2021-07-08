@@ -86,6 +86,8 @@ template <typename DeviceContext, typename T>
 class CPUDropoutKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& context) const override {
+    LOG(WARNING) << "cpu forward: ";
+
     auto* x = context.Input<Tensor>("X");
     auto* seed =
         context.HasInput("Seed") ? context.Input<Tensor>("Seed") : nullptr;
@@ -95,6 +97,18 @@ class CPUDropoutKernel : public framework::OpKernel<T> {
     float dropout_prob = context.Attr<float>("dropout_prob");
 
     LOG(WARNING) << "x: " << x;
+
+    int numel = x->numel();
+
+    std::ostringstream oss;
+    for (int i = 0; i < numel && i < 10; ++i) {
+      // oss << x->data<T>()[i] << ",";
+      // printf("%f, ", x->data<T>()[i]);
+      // printf("%f, ", *(x->data<T>()));
+      oss << y_data[i] << ",";
+    }
+
+    LOG(WARNING) << "x->data: " << oss.str();
 
     auto& dropout_implementation =
         context.Attr<std::string>("dropout_implementation");
@@ -162,6 +176,8 @@ template <typename DeviceContext, typename T>
 class DropoutGradKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& context) const override {
+    LOG(WARNING) << "cpu backward: ";
+
     PADDLE_ENFORCE_EQ(!context.Attr<bool>("is_test"), true,
                       platform::errors::PreconditionNotMet(
                           "GradOp is only callable when is_test is false"));

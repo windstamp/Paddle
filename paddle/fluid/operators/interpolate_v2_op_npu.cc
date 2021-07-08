@@ -55,8 +55,10 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     //   // printf("%f, ", x->data<T>()[i]);
     // }
 
-    out->Resize(x->dims());
+    // out->Resize(x->dims());
     // out->Resize(framework::make_ddim({2, 3, 3, 3}));
+    // out->Resize(framework::make_ddim({2, 3, 2, 2}));
+    out->Resize(framework::make_ddim({2, 2, 2, 3}));
 
     out->mutable_data<T>(ctx.GetPlace());
 

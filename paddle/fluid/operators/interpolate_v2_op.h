@@ -944,6 +944,7 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
     dim_out = {n, out_h, out_w, c};
   }
   output->mutable_data<T>(dim_out, ctx.GetPlace());
+  LOG(WARNING) << "dim_out: " << dim_out;
 
   if (in_h == out_h && in_w == out_w) {
     framework::TensorCopy(input, ctx.GetPlace(), output);

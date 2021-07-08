@@ -164,6 +164,7 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
     } else {
       dim_out = {dim_x[0], out_h, out_w, dim_x[3]};
     }
+    LOG(WARNING) << "dim_out: " << dim_out;
     ctx->SetOutputDim("Out", dim_out);
 
     return;
@@ -242,6 +243,7 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
   } else {
     dim_out = {dim_x[0], out_h, out_w, dim_x[3]};
   }
+  LOG(WARNING) << "dim_out: " << dim_out;
   ctx->SetOutputDim("Out", dim_out);
 }
 

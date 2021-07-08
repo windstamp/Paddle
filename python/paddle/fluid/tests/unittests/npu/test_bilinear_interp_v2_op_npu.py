@@ -167,6 +167,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.outputs = {'Out': output_np}
 
     def test_check_output(self):
+        self.check_output(check_dygraph=False)
         self.check_output_with_place(self.place, check_dygraph=False)
 
     #    def test_check_grad(self):

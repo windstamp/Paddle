@@ -25,20 +25,26 @@ from paddle.fluid import Program, program_guard
 paddle.enable_static()
 
 
-@unittest.skipIf(not paddle.is_compiled_with_npu() or True,
+@unittest.skipIf(not paddle.is_compiled_with_npu() or False,
                  "core is not compiled with NPU")
 class TestNPUDropoutOp(OpTest):
     def setUp(self):
         self.op_type = "dropout"
         self.set_npu()
-        self.inputs = {'X': np.random.random((32, 64)).astype("float32")}
+        self.inputs = {'X': np.random.random((2, 4)).astype("float32")}
         self.attrs = {'dropout_prob': 0.35, 'fix_seed': True, 'is_test': False}
-        self.outputs = {'Out': self.inputs['X']}
+        self.outputs = {
+            'Out': self.inputs['X'] * (1.0 - self.attrs['dropout_prob'])
+        }
+        print('self.inputs: ', self.inputs)
+        print('self.outputs: ', self.outputs)
 
     def test_check_output(self):
+        # self.check_output(check_dygraph=False)
         self.check_output_with_place(self.place, check_dygraph=False)
 
 #    def test_check_grad(self):
+#        self.check_grad(['X'], 'Out', check_dygraph=False)
 #        self.check_grad_with_place(self.place, ['X'], 'Out', check_dygraph=False)
 
     def set_npu(self):
@@ -46,27 +52,31 @@ class TestNPUDropoutOp(OpTest):
         self.place = paddle.NPUPlace(5)
 
 
-@unittest.skipIf(not paddle.is_compiled_with_npu(),
+@unittest.skipIf(not paddle.is_compiled_with_npu() or False,
                  "core is not compiled with NPU")
 class TestNPUDropoutOpWithSeed(OpTest):
     def setUp(self):
         self.op_type = "dropout"
         self.set_npu()
         self.inputs = {
-            "X": np.random.random((32, 64)).astype("float32"),
+            "X": np.random.random((2, 4)).astype("float32"),
             "Seed": np.asarray(
                 [12.5], dtype="float32")
         }
-        self.attrs = {'dropout_prob': 0.35, }
+        self.attrs = {'dropout_prob': 0.0, }
         self.outputs = {
             'Out': self.inputs['X'],
-            'Mask': np.ones((32, 64)).astype('int32')
+            'Mask': np.ones((2, 4)).astype('int32')
         }
+        print('self.inputs: ', self.inputs)
+        print('self.outputs: ', self.outputs)
 
     def test_check_output(self):
+        # self.check_output()
         self.check_output_with_place(self.place, check_dygraph=False)
 
 #    def test_check_grad_normal(self):
+#        self.check_grad(['X'], 'Out', max_relative_error=0.05)
 #        self.check_grad_with_place(self.place, ['X'], 'Out', max_relative_error=0.05, check_dygraph=False)
 
     def set_npu(self):
