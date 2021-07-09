@@ -76,18 +76,24 @@ class DropoutNPUKernel : public framework::OpKernel<T> {
     LOG(WARNING) << "out: " << out;
 
     if (!seed) {
-      framework::NPUAttributeMap attr_input = {{"dropout_ratio", dropout_prob},
-                                               {"scale_train", false},
-                                               {"alpha", 1.3f},
-                                               {"beta", 0.30f}};
+      LOG(WARNING) << "Ascend Dropout";
 
-      const auto& runner = NpuOpRunner("Dropout", {new_x}, {*out}, attr_input);
+      framework::NPUAttributeMap attr_input = {};
+      // framework::NPUAttributeMap attr_input = {{"dropout_ratio",
+      // dropout_prob},
+      //                                          {"scale_train", false},
+      //                                          {"alpha", 1.3f},
+      //                                          {"beta", 0.30f}};
+
+      const auto& runner = NpuOpRunner("Dropout", {*x}, {*out}, attr_input);
 
       auto stream =
           ctx.template device_context<paddle::platform::NPUDeviceContext>()
               .stream();
       runner.Run(stream);
     } else {
+      LOG(WARNING) << "Ascend DropoutV2";
+
       auto* mask = ctx.Output<Tensor>("Mask");
       mask->mutable_data<T>(ctx.GetPlace());
 

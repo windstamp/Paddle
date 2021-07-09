@@ -31,7 +31,7 @@ class TestNPUDropoutOp(OpTest):
     def setUp(self):
         self.op_type = "dropout"
         self.set_npu()
-        self.inputs = {'X': np.random.random((2, 4)).astype("float32")}
+        self.inputs = {'X': np.random.random((2, 2, 2, 4)).astype("float32")}
         self.attrs = {'dropout_prob': 0.35, 'fix_seed': True, 'is_test': False}
         self.outputs = {
             'Out': self.inputs['X'] * (1.0 - self.attrs['dropout_prob'])
@@ -52,21 +52,25 @@ class TestNPUDropoutOp(OpTest):
         self.place = paddle.NPUPlace(5)
 
 
-@unittest.skipIf(not paddle.is_compiled_with_npu() or False,
+@unittest.skipIf(not paddle.is_compiled_with_npu() or True,
                  "core is not compiled with NPU")
 class TestNPUDropoutOpWithSeed(OpTest):
     def setUp(self):
         self.op_type = "dropout"
         self.set_npu()
+        # self.inputs = {
+        #     "X": np.random.random((2, 2, 2, 4)).astype("float32"),
+        #     "Seed": np.asarray(
+        #         [12.5], dtype="float32")
+        # }
         self.inputs = {
-            "X": np.random.random((2, 4)).astype("float32"),
-            "Seed": np.asarray(
-                [12.5], dtype="float32")
+            "X": np.random.random((2, 2, 2, 4)).astype("float32"),
+            "Seed": np.random.random((2, 2, 2, 4)).astype("float32")
         }
-        self.attrs = {'dropout_prob': 0.0, }
+        self.attrs = {'dropout_prob': 0.35, }
         self.outputs = {
             'Out': self.inputs['X'],
-            'Mask': np.ones((2, 4)).astype('int32')
+            'Mask': np.ones((2, 2, 2, 4)).astype('int32')
         }
         print('self.inputs: ', self.inputs)
         print('self.outputs: ', self.outputs)
