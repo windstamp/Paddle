@@ -126,8 +126,12 @@ static void Interpolate1DInferShapeCheck(framework::InferShapeContext* ctx) {
 }
 
 static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
+  LOG(WARNING) << "Interpolate2DInferShapeCheck";
+
   auto dim_x = ctx->GetInputDim("X");
   auto interp_method = ctx->Attrs().Get<std::string>("interp_method");
+
+  LOG(WARNING) << "dim_x: " << dim_x;
 
   PADDLE_ENFORCE(
       "bilinear" == interp_method || "nearest" == interp_method ||
@@ -147,6 +151,7 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
   }
 
   if (ctx->HasInputs("SizeTensor")) {
+    LOG(WARNING) << "here";
     // top prority size
     auto inputs_name = ctx->Inputs("SizeTensor");
     PADDLE_ENFORCE_EQ(
@@ -172,6 +177,7 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
 
   int out_h, out_w;
   if (ctx->HasInput("Scale")) {
+    LOG(WARNING) << "here";
     auto scale_tensor = ctx->GetInputDim("Scale");
     PADDLE_ENFORCE_EQ(
         scale_tensor.size(), 1,
@@ -185,8 +191,10 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
     out_h = -1;
     out_w = -1;
   } else {
+    LOG(WARNING) << "here";
     auto scale = ctx->Attrs().Get<std::vector<float>>("scale");
     if (scale.size() > 0) {
+      LOG(WARNING) << "here";
       float scale_h = -1;
       float scale_w = -1;
       scale_h = scale[0];
@@ -214,10 +222,14 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
         // protect when input shape is -1
         out_h = out_h > 0 ? out_h : -1;
         out_w = out_w > 0 ? out_w : -1;
+        LOG(WARNING) << "out_h: " << out_h;
+        LOG(WARNING) << "out_w: " << out_w;
       }
     } else {
       out_h = ctx->Attrs().Get<int>("out_h");
       out_w = ctx->Attrs().Get<int>("out_w");
+      LOG(WARNING) << "out_h: " << out_h;
+      LOG(WARNING) << "out_w: " << out_w;
     }
   }
 
@@ -234,6 +246,10 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
             "OutSize's dim[0] must be 2, but got dimention = %d .",
             out_size_dim[0]));
     ctx->ShareLoD("X", "Out");
+
+    LOG(WARNING) << "out_size_dim: " << out_size_dim;
+    LOG(WARNING) << "out_size_dim[0]: " << out_size_dim[0];
+
     return;
   }
 
@@ -243,7 +259,9 @@ static void Interpolate2DInferShapeCheck(framework::InferShapeContext* ctx) {
   } else {
     dim_out = {dim_x[0], out_h, out_w, dim_x[3]};
   }
+
   LOG(WARNING) << "dim_out: " << dim_out;
+
   ctx->SetOutputDim("Out", dim_out);
 }
 

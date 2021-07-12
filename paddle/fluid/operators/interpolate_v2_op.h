@@ -857,10 +857,19 @@ static void Interpolate1DCPUFwd(const framework::ExecutionContext& ctx,
 template <typename T>
 static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
                                 const Tensor& input, Tensor* output) {
+  LOG(WARNING) << "Interpolate2DCPUFwd";
+
   const std::string data_layout_str = ctx.Attr<std::string>("data_layout");
   const DataLayout data_layout = framework::StringToDataLayout(data_layout_str);
   int n, c, in_d, in_h, in_w;
   ExtractNCDWH(input.dims(), data_layout, &n, &c, &in_d, &in_h, &in_w);
+
+  LOG(WARNING) << "data_layout_str: " << data_layout_str;
+  LOG(WARNING) << "n: " << n;
+  LOG(WARNING) << "c: " << c;
+  LOG(WARNING) << "in_d: " << in_d;
+  LOG(WARNING) << "in_h: " << in_h;
+  LOG(WARNING) << "in_w: " << in_w;
 
   auto interp_method = ctx.Attr<std::string>("interp_method");
   bool align_corners = ctx.Attr<bool>("align_corners");
@@ -873,19 +882,24 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
 
   auto list_new_size_tensor = ctx.MultiInput<framework::Tensor>("SizeTensor");
   if (list_new_size_tensor.size() > 0) {
+    LOG(WARNING) << "here";
     // have size tensor
     auto new_size = get_new_shape(list_new_size_tensor);
     out_h = new_size[0];
     out_w = new_size[1];
   } else {
+    LOG(WARNING) << "here";
     auto scale_tensor = ctx.Input<Tensor>("Scale");
     auto scale = ctx.Attr<std::vector<float>>("scale");
     if (scale_tensor != nullptr) {
+      LOG(WARNING) << "here";
       auto scale_data = get_new_data_from_tensor<float>(scale_tensor);
       if (scale_data.size() > 1) {
+        LOG(WARNING) << "here";
         scale_h = scale_data[0];
         scale_w = scale_data[1];
       } else {
+        LOG(WARNING) << "here";
         scale_h = scale_data[0];
         scale_w = scale_data[0];
       }
@@ -902,7 +916,9 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
               "should be greater than 0, but received value is %d.",
               scale_h));
     } else {
+      LOG(WARNING) << "here";
       if (scale.size() > 1) {
+        LOG(WARNING) << "here";
         scale_h = scale[0];
         scale_w = scale[1];
 
@@ -921,6 +937,7 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
       }
     }
     if (scale_h > 0. && scale_w > 0.) {
+      LOG(WARNING) << "here";
       out_h = static_cast<int>(in_h * scale_h);
       out_w = static_cast<int>(in_w * scale_w);
     }
@@ -929,6 +946,8 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
       auto out_size_data = get_new_data_from_tensor<int>(out_size);
       out_h = out_size_data[0];
       out_w = out_size_data[1];
+      LOG(WARNING) << "out_h: " << out_h;
+      LOG(WARNING) << "out_w: " << out_w;
     }
   }
   PADDLE_ENFORCE_GT(out_h, 0, platform::errors::InvalidArgument(
@@ -943,10 +962,13 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
   } else {
     dim_out = {n, out_h, out_w, c};
   }
-  output->mutable_data<T>(dim_out, ctx.GetPlace());
   LOG(WARNING) << "dim_out: " << dim_out;
+  LOG(WARNING) << "dim_out: " << output->dims();
+  output->mutable_data<T>(dim_out, ctx.GetPlace());
+  LOG(WARNING) << "dim_out: " << output->dims();
 
   if (in_h == out_h && in_w == out_w) {
+    LOG(WARNING) << "here";
     framework::TensorCopy(input, ctx.GetPlace(), output);
     return;
   }
@@ -959,6 +981,8 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
                                 : static_cast<float>(in_h) / out_h;
     ratio_h = (align_corners) ? static_cast<float>(in_h - 1) / (out_h - 1)
                               : static_cast<float>(new_scale_h);
+    LOG(WARNING) << "new_scale_h: " << new_scale_h;
+    LOG(WARNING) << "ratio_h: " << ratio_h;
   }
   if (out_w > 1) {
     float new_scale_w = 0.f;
@@ -966,6 +990,8 @@ static void Interpolate2DCPUFwd(const framework::ExecutionContext& ctx,
                                 : static_cast<float>(in_w) / out_w;
     ratio_w = (align_corners) ? static_cast<float>(in_w - 1) / (out_w - 1)
                               : static_cast<float>(new_scale_w);
+    LOG(WARNING) << "new_scale_w: " << new_scale_w;
+    LOG(WARNING) << "ratio_w: " << ratio_w;
   }
 
   if ("bilinear" == interp_method) {
@@ -1491,10 +1517,13 @@ template <typename T>
 class InterpolateV2Kernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+    LOG(WARNING) << "InterpolateV2Kernel";
+
     auto* input = ctx.Input<Tensor>("X");
     auto* output = ctx.Output<Tensor>("Out");
 
     LOG(WARNING) << "input: " << input;
+    LOG(WARNING) << "input_dims: " << input->dims();
 
     auto input_dims = input->dims();
     if (input_dims.size() == 3) {  // 1D interpolation

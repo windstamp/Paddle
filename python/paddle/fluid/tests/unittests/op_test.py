@@ -1204,8 +1204,8 @@ class OpTest(unittest.TestCase):
                 if expect_t.size == 0:
                     self.assertTrue(actual_t.size == 0)
 
-                print('Expect ', str(expect_t))
-                print('Got ', str(actual_t))
+                # print('Expect ', str(expect_t))
+                # print('Got ', str(actual_t))
                 self.assertTrue(
                     np.allclose(
                         actual_t,

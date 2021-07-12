@@ -149,6 +149,10 @@ class TestNPUBilinearInterpV2Op(OpTest):
         if self.actual_shape is not None:
             self.inputs['OutSize'] = self.actual_shape
 
+        print('out_size: ', self.out_size)
+        print('actual_shape: ', self.actual_shape)
+        print('OutSize: ', self.inputs['OutSize'])
+
         self.attrs = {
             'out_h': self.out_h,
             'out_w': self.out_w,
@@ -167,7 +171,9 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.outputs = {'Out': output_np}
 
     def test_check_output(self):
+        print('check_output')
         self.check_output(check_dygraph=False)
+        print('check_output_with_place')
         self.check_output_with_place(self.place, check_dygraph=False)
 
     #    def test_check_grad(self):
@@ -184,7 +190,7 @@ class TestNPUBilinearInterpV2Op(OpTest):
         self.out_w = 2
         self.scale = 0.
         self.out_size = np.array([3, 3]).astype("int32")
-        self.align_corners = True
+        self.align_corners = False
         self.align_mode = 1
 
 
