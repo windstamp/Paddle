@@ -24,6 +24,8 @@ template <typename DeviceContext, typename T>
 class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+    LOG(WARNING) << "BilinearInterpV2NPUKernel";
+
     auto* x = ctx.Input<Tensor>("X");
     auto* outSize = ctx.Input<Tensor>("OutSize");
     auto* out = ctx.Output<Tensor>("Out");
@@ -49,13 +51,36 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
     LOG(WARNING) << "out dims: " << out->dims();
     LOG(WARNING) << "outSize dims: " << outSize->dims();
 
-    // std::ostringstream oss2;
-    // for (int i = 0; i < numel; ++i) {
-    //   // oss2 << x->data<T>()[i] << ",";
-    //   // printf("%f, ", x->data<T>()[i]);
-    // }
+    // print Tensor X
+    if (true) {
+      LOG(WARNING) << "print Tensor X";
+
+      framework::Tensor cpu_x;
+      TensorCopySync(*x, paddle::platform::CPUPlace(), &cpu_x);
+
+      std::ostringstream oss;
+      for (int i = 0; i < numel && i < 10; ++i) {
+        oss << cpu_x.data<T>()[i] << ",";
+      }
+      LOG(WARNING) << "cpu_x: " << oss.str();
+    }
+
+    // print Tensor OutSize
+    if (true) {
+      LOG(WARNING) << "print Tensor OutSize";
+
+      framework::Tensor cpu_outSize(paddle::framework::proto::VarType::INT32);
+      TensorCopySync(*outSize, paddle::platform::CPUPlace(), &cpu_outSize);
+
+      std::ostringstream oss2;
+      for (int i = 0; i < outSize->numel() && i < 10; ++i) {
+        oss2 << cpu_outSize.data<int>()[i] << ",";
+      }
+      LOG(WARNING) << "cpu_outSize: " << oss2.str();
+    }
 
     // out->Resize(x->dims());
+    // out->Resize(framework::make_ddim({2, 3, -1, -1}));
     out->Resize(framework::make_ddim({2, 3, 3, 3}));
     // out->Resize(framework::make_ddim({2, 3, 2, 2}));
     // out->Resize(framework::make_ddim({2, 2, 2, 3}));
@@ -73,21 +98,8 @@ class BilinearInterpV2NPUKernel : public framework::OpKernel<T> {
         {"align_corners", align_corners},
         {"half_pixel_centers", half_pixel_centers}};
 
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2",
-    //                                  {
-    //                                      *x,
-    //                                  },
-    //                                  {*out}, attr_input);
-
-    // const auto& runner = NpuOpRunner("ResizeBilinearV2", {*x,}, {*out},
-    // attr_input);
-
     // const auto& runner =
-    //     NpuOpRunner("ResizeBilinearV2",
-    //                 {
-    //                     *x,
-    //                 },
-    //                 {*out}, attr_input);
+    //     NpuOpRunner("ResizeBilinearV2", {*x,}, {*out}, attr_input);
 
     const auto& runner =
         NpuOpRunner("ResizeBilinearV2", {*x, *outSize}, {*out}, attr_input);
